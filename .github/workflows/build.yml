@@ -41,7 +41,7 @@ jobs:
           VERSION_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('0.1.{0}', github.run_number) }}
         run: ./gradlew --no-daemon :core:selfTest :app:assembleRelease
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: carmonitor-apk
           path: app/build/outputs/apk/release/*.apk
