@@ -1,0 +1,94 @@
+package uk.co.ashunt.carmonitor
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothSocket
+import android.content.Context
+import uk.co.ashunt.carmonitor.core.ElmLink
+import uk.co.ashunt.carmonitor.core.MiniMqtt
+import uk.co.ashunt.carmonitor.core.Sink
+import uk.co.ashunt.carmonitor.core.StreamLink
+import uk.co.ashunt.carmonitor.core.Topics
+import java.io.IOException
+import java.util.UUID
+
+/** Classic Bluetooth SPP (RFCOMM) link to an ELM327 dongle. */
+object BtSpp {
+    private val SPP: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+    @SuppressLint("MissingPermission")   // caller checks BLUETOOTH_CONNECT
+    fun open(ctx: Context, address: String): ElmLink {
+        val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter
+            ?: throw IOException("no Bluetooth adapter")
+        if (!adapter.isEnabled) throw IOException("Bluetooth is off")
+        val dev = adapter.getRemoteDevice(address)
+        adapter.cancelDiscovery()
+        var sock: BluetoothSocket? = null
+        var last: IOException? = null
+        for (secure in listOf(true, false)) {
+            try {
+                sock = if (secure) dev.createRfcommSocketToServiceRecord(SPP) else dev.createInsecureRfcommSocketToServiceRecord(SPP)
+                sock.connect()
+                break
+            } catch (e: IOException) {
+                last = e
+                try { sock?.close() } catch (_: IOException) {}
+                sock = null
+            }
+        }
+        val s = sock ?: throw last ?: IOException("connect failed")
+        val link = StreamLink(s.inputStream, s.outputStream)
+        return object : ElmLink by link {
+            override fun close() { link.close(); try { s.close() } catch (_: IOException) {} }
+        }
+    }
+}
+
+/**
+ * Sink that tolerates a flaky uplink (hotspot drops, tunnels down). Live values are dropped
+ * while offline; retained ones (trip summaries, DTCs, discovery) are kept, latest per topic,
+ * and flushed on reconnect.
+ */
+class ReconnectingMqtt(
+    private val host: String, private val port: Int,
+    private val user: String?, private val pass: String?,
+    private val log: (String) -> Unit,
+) : Sink {
+    private var client: MiniMqtt? = null
+    private var lastAttempt = 0L
+    private val retained = LinkedHashMap<String, String>()
+    val connected get() = client?.connected == true
+
+    @Synchronized
+    override fun publish(topic: String, payload: String, retain: Boolean) {
+        if (retain) retained[topic] = payload
+        if (!ensure()) return
+        try {
+            client!!.publish(topic, payload, retain)
+        } catch (e: IOException) {
+            log("mqtt: ${e.message}")
+        }
+    }
+
+    private fun ensure(): Boolean {
+        if (client?.connected == true) return true
+        if (host.isBlank()) return false
+        val now = System.currentTimeMillis()
+        if (now - lastAttempt < 15_000) return false
+        lastAttempt = now
+        return try {
+            val c = MiniMqtt(host, port, "carmonitor-" + android.os.Build.MODEL.replace(' ', '-'),
+                user?.ifBlank { null }, pass?.ifBlank { null }, will = Topics.STATUS to "offline", log = log)
+            c.connect()
+            client = c
+            for ((t, p) in retained) c.publish(t, p, true)
+            true
+        } catch (e: Exception) {
+            log("mqtt connect failed: ${e.message}")
+            false
+        }
+    }
+
+    @Synchronized
+    fun close() { client?.close(); client = null }
+}
