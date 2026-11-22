@@ -23,6 +23,7 @@ Scanning needs the *Nearby devices* permission. The app declares it `neverForLoc
 - Broker: the HA **Mosquitto** add-on, ideally reached over Tailscale/NetBird (use the HA box's tailnet IP). Don't expose
   1883 to the internet.
 - User and password: a Home Assistant user.
+- Tap **Test HA connection**. On success a *Connection test* sensor appears under the car's device in HA (Settings → Devices → MQTT). On failure the message says why (wrong password, not authorised, unreachable).
 - Topic base and device name default to the car (`car/toyota_rav4`, "Toyota RAV4"). Change them if you like.
 
 ## 5. First drive

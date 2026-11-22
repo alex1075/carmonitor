@@ -270,6 +270,10 @@ object SelfTest {
         eq(ObdbCatalog.chooseFile(files, null), "default.json", "no year -> default")
         eq(Wmi.make("JMZKFGW2600608992"), "Mazda", "WMI Mazda")
         eq(Wmi.make("XXX"), null, "unknown WMI")
+        val (tt, tc) = HaDiscovery.connectionTest(TopicScheme.forVehicle(VehicleRef("Toyota-RAV4", "Toyota", "RAV4")))
+        eq(tt, "homeassistant/sensor/carmonitor_toyota_rav4_connection_test/config", "test sensor topic")
+        check(tc.contains("\"state_topic\":\"car/toyota_rav4/test\"") && !tc.contains("availability"), "test sensor config")
+        eq(MiniMqtt.REFUSED[5]?.startsWith("not authorised"), true, "CONNACK rc 5 explained")
     }
 
     fun json() {
