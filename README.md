@@ -34,7 +34,7 @@ Discovery also saves them in the profile.
 
 ## Setup
 
-1. Pair the dongle in Android Bluetooth settings.
+1. Pair the dongle, either in Android Bluetooth settings or in the app with **Scan & pair…** (ignition on). Scanning asks for *Nearby devices* permission, declared `neverForLocation`, so no location access.
 2. Install the APK (from [Releases](../../releases), or add the repo in Obtainium) and grant the Bluetooth and notification
    permissions.
 3. **Vehicle → Choose vehicle…** and search (for example `RAV4`, `Golf`, `CX-5`). The make is pre-filled from the VIN once discovery

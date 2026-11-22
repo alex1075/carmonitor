@@ -3,6 +3,7 @@
 | Symptom | Likely cause / fix |
 |---|---|
 | "dongle not reachable" | Ignition off (many dongles sleep), not paired, or another app holds the connection. Close Car Scanner/Torque. |
+| Scan finds nothing | Ignition on? Some dongles only advertise for a minute after power-up. BLE-only dongles are hidden (not supported yet). |
 | "adapter rejected AT…" | Poor clone. See [[Choosing a dongle|Choosing-a-Dongle]]. |
 | Discovery finds almost nothing | Wrong model year or vehicle; a K-line/J1850 car (try another `ATSP`); or Mode 22 blocked by a gateway (some newer cars). |
 | "vehicle signalset not downloaded" | Choose the vehicle again while online. |

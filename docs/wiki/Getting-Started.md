@@ -8,7 +8,9 @@ Grant **Bluetooth** and **notification** permissions on first launch. Then turn 
 (Settings → Apps → CarMonitor → Battery → Unrestricted), otherwise Android may stop the logger between drives.
 
 ## 2. Pair the dongle
-Pair it in Android's Bluetooth settings, then pick it under **OBD dongle** in the app.
+With the ignition on, tap **Scan & pair…**. It lists nearby *classic* Bluetooth devices (BLE-only gadgets are hidden), and you pick the dongle. Android then asks for the PIN (often `1234` or `0000`). Or pair it in Android's Bluetooth settings and pick it under **OBD dongle**.
+
+Scanning needs the *Nearby devices* permission. The app declares it `neverForLocation`, so it gets no location access.
 
 ## 3. Choose your car
 1. Set the **model year**. It decides which OBDb file is used (`2012-2020.json`, …, or `default.json`). Many EU/JDM VINs

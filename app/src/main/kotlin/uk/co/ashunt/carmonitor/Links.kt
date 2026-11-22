@@ -21,7 +21,7 @@ object BtSpp {
             ?: throw IOException("no Bluetooth adapter")
         if (!adapter.isEnabled) throw IOException("Bluetooth is off")
         val dev = adapter.getRemoteDevice(address)
-        adapter.cancelDiscovery()
+        // No cancelDiscovery(): we never scan, and on Android 12+ it needs BLUETOOTH_SCAN.
         var sock: BluetoothSocket? = null
         var last: IOException? = null
         for (secure in listOf(true, false)) {
@@ -29,6 +29,9 @@ object BtSpp {
                 sock = if (secure) dev.createRfcommSocketToServiceRecord(SPP) else dev.createInsecureRfcommSocketToServiceRecord(SPP)
                 sock.connect()
                 break
+            } catch (e: SecurityException) {
+                try { sock?.close() } catch (_: IOException) {}
+                throw IOException("Bluetooth permission missing: ${e.message}")
             } catch (e: IOException) {
                 last = e
                 try { sock?.close() } catch (_: IOException) {}

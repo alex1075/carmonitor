@@ -93,7 +93,11 @@ class ObdService : Service() {
         super.onDestroy()
     }
 
-    private fun loop() {
+    private fun loop() = try { loopInner() } catch (e: Throwable) {
+        Status.log("worker stopped: $e"); Status.state = "error: ${e.javaClass.simpleName}"
+    }
+
+    private fun loopInner() {
         val prefs = Prefs(this)
         val scheme = prefs.scheme()
         val mqtt = ReconnectingMqtt(prefs.brokerHost, prefs.brokerPort, prefs.brokerUser, prefs.brokerPass, scheme.status) {
@@ -108,8 +112,10 @@ class ObdService : Service() {
                     setState("needs Bluetooth permission", ""); sleep(5000); continue
                 }
                 setState("waiting for the car", "dongle $addr")
-                val link = try { BtSpp.open(this, addr) } catch (e: IOException) {
-                    Status.detail = "dongle not reachable (${e.message})"; sleep(20_000); continue
+                val link = try { BtSpp.open(this, addr) } catch (e: Exception) {
+                    // Never let a connect failure (incl. SecurityException) kill the service:
+                    // START_STICKY would restart it straight into the same crash.
+                    Status.detail = "dongle not reachable (${e.message})"; Status.log("connect: $e"); sleep(20_000); continue
                 }
                 acquireWake()
                 try {
