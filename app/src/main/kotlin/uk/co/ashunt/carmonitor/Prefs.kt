@@ -2,25 +2,53 @@ package uk.co.ashunt.carmonitor
 
 import android.content.Context
 import uk.co.ashunt.carmonitor.core.LoggerConfig
+import uk.co.ashunt.carmonitor.core.ObdbCatalog
 import uk.co.ashunt.carmonitor.core.SignalSet
 import uk.co.ashunt.carmonitor.core.SweepRange
+import uk.co.ashunt.carmonitor.core.TopicScheme
 import uk.co.ashunt.carmonitor.core.VehicleProfile
+import uk.co.ashunt.carmonitor.core.VehicleRef
 import java.io.File
 
 class Prefs(private val ctx: Context) {
     private val sp = ctx.getSharedPreferences("carmonitor", Context.MODE_PRIVATE)
 
-    var deviceAddress: String? get() = sp.getString("device", null); set(v) = sp.edit().putString("device", v).apply()
-    var brokerHost: String get() = sp.getString("host", "") ?: ""; set(v) = sp.edit().putString("host", v).apply()
+    private fun str(k: String, d: String) = sp.getString(k, d) ?: d
+    private fun put(k: String, v: String?) = sp.edit().putString(k, v).apply()
+
+    var deviceAddress: String? get() = sp.getString("device", null); set(v) = put("device", v)
+    var brokerHost: String get() = str("host", ""); set(v) = put("host", v)
     var brokerPort: Int get() = sp.getInt("port", 1883); set(v) = sp.edit().putInt("port", v).apply()
-    var brokerUser: String get() = sp.getString("user", "") ?: ""; set(v) = sp.edit().putString("user", v).apply()
-    var brokerPass: String get() = sp.getString("pass", "") ?: ""; set(v) = sp.edit().putString("pass", v).apply()
-    /** EU CX-5 VINs carry no model-year code, so this decides which OBDb year filters apply. */
+    var brokerUser: String get() = str("user", ""); set(v) = put("user", v)
+    var brokerPass: String get() = str("pass", ""); set(v) = put("pass", v)
+    /** Used when the VIN carries no model-year code (most EU/JDM VINs). */
     var modelYear: Int get() = sp.getInt("year", 2017); set(v) = sp.edit().putInt("year", v).apply()
     var publishAll: Boolean get() = sp.getBoolean("all", false); set(v) = sp.edit().putBoolean("all", v).apply()
     var publishCandidates: Boolean get() = sp.getBoolean("cand", true); set(v) = sp.edit().putBoolean("cand", v).apply()
     var autoStart: Boolean get() = sp.getBoolean("boot", true); set(v) = sp.edit().putBoolean("boot", v).apply()
-    var sweep: String get() = sp.getString("sweep", "7E0:0300-04FF, 7E0:0500-05FF") ?: ""; set(v) = sp.edit().putString("sweep", v).apply()
+    var sweep: String get() = str("sweep", "7E0:0300-04FF, 7E0:0500-05FF"); set(v) = put("sweep", v)
+
+    // --- vehicle (OBDb repo) and HA naming -------------------------------------------
+    /** OBDb repo, e.g. "Mazda-CX-5"; "" = generic SAE J1979 only. */
+    var vehicleRepo: String get() = str("repo", "Mazda-CX-5"); set(v) = put("repo", v)
+    var signalsetFile: String get() = str("ssfile", "default.json"); set(v) = put("ssfile", v)
+    var topicBase: String get() = str("tbase", TopicScheme.MAZDA_CX5_LEGACY.base); set(v) = put("tbase", v)
+    var haDeviceId: String get() = str("devid", TopicScheme.MAZDA_CX5_LEGACY.deviceId); set(v) = put("devid", v)
+    var haDeviceName: String get() = str("devname", TopicScheme.MAZDA_CX5_LEGACY.deviceName); set(v) = put("devname", v)
+    var legacyTopics: Boolean get() = sp.getBoolean("legacy", true); set(v) = sp.edit().putBoolean("legacy", v).apply()
+
+    fun vehicle(): VehicleRef? = vehicleRepo.takeIf { it.isNotBlank() }?.let { ObdbCatalog.parseRepoName(it) }
+
+    fun scheme() = TopicScheme(topicBase.trim('/'), haDeviceId, haDeviceName, vehicle()?.model, legacyTopics)
+
+    /** Switch vehicle: reset HA naming to that car's defaults (CX-5 keeps the Pi-logger preset). */
+    fun selectVehicle(v: VehicleRef?, file: String) {
+        vehicleRepo = v?.repo ?: ""
+        signalsetFile = file
+        val s = if (v?.repo == "Mazda-CX-5") TopicScheme.MAZDA_CX5_LEGACY else TopicScheme.forVehicle(v)
+        topicBase = s.base; haDeviceId = s.deviceId; haDeviceName = s.deviceName; legacyTopics = s.legacy
+        profileFile.delete()          // a profile belongs to one car's signalset
+    }
 
     fun loggerConfig() = LoggerConfig(publishAll = publishAll, publishCandidates = publishCandidates)
 
@@ -35,24 +63,38 @@ class Prefs(private val ctx: Context) {
 
     // --- files ------------------------------------------------------------------
     val profileFile get() = File(ctx.filesDir, "profile.json")
-    val overlayFile get() = File(ctx.filesDir, "overlay.json")      // user-edited overlay (imported)
+    val overlayFile get() = File(ctx.filesDir, "overlay.json")      // user-imported overlay
     val logDir get() = File(ctx.filesDir, "drives").apply { mkdirs() }
 
     fun profile(): VehicleProfile? = profileFile.takeIf { it.exists() }?.let {
         try { VehicleProfile.fromJson(it.readText()) } catch (_: Exception) { null }
     }
 
-    fun overlayJson(): String =
-        overlayFile.takeIf { it.exists() }?.readText()
-            ?: ctx.assets.open("overlay/mazda-skyactiv-d.json").bufferedReader().readText()
+    private fun asset(p: String): String? = try {
+        ctx.assets.open(p).bufferedReader().readText()
+    } catch (_: Exception) { null }
 
+    /**
+     * SAE J1979 (bundled) + make fallback + model signalset (downloaded, or bundled for the CX-5)
+     * + overlay (user-imported, else bundled overlay/<repo>.json). Later layers override earlier.
+     */
     fun library(): SignalSet {
-        fun asset(p: String) = ctx.assets.open(p).bufferedReader().readText()
-        return SignalSet.merge(
-            "cx5-diesel",
-            SignalSet.parse("SAEJ1979", asset("obdb/SAEJ1979.json")),
-            SignalSet.parse("Mazda-CX-5", asset("obdb/Mazda-CX-5.json")),
-            SignalSet.parse("overlay", overlayJson()),
-        )
+        val obdb = ObdbClient(ctx)
+        val layers = mutableListOf(SignalSet.parse("SAEJ1979", asset("obdb/SAEJ1979.json")!!))
+        val v = vehicle()
+        if (v != null) {
+            if (!v.isMakeFallback) obdb.cachedSignalset(v.make.replace(' ', '-')).takeIf { it.exists() }
+                ?.let { layers += SignalSet.parse(v.make, it.readText()) }
+            val model = obdb.cachedSignalset(v.repo).takeIf { it.exists() }?.readText() ?: asset("obdb/${v.repo}.json")
+            model?.let { layers += SignalSet.parse(v.repo, it) }
+        }
+        val overlay = overlayFile.takeIf { it.exists() }?.readText() ?: v?.let { asset("overlay/${it.repo}.json") }
+        overlay?.let { layers += SignalSet.parse("overlay", it) }
+        return SignalSet.merge(v?.repo ?: "generic", *layers.toTypedArray())
+    }
+
+    fun hasSignalset(): Boolean {
+        val v = vehicle() ?: return true
+        return ObdbClient(ctx).cachedSignalset(v.repo).exists() || asset("obdb/${v.repo}.json") != null
     }
 }

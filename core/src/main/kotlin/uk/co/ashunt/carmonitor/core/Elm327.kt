@@ -105,6 +105,8 @@ class Elm327(
     private var header: String? = null
     private var rxFilter: String? = null
     var adapterId: String = ""; private set
+    /** AT commands the adapter rejected during init (a sign of a poor clone). */
+    var adapterWarnings: List<String> = emptyList(); private set
 
     private val ERRORS = listOf(
         "NO DATA", "CAN ERROR", "UNABLE TO CONNECT", "BUS INIT", "BUS BUSY", "BUS ERROR",
@@ -122,10 +124,12 @@ class Elm327(
         // Wake/flush: a bare CR can repeat the last command, so send ATZ straight away.
         adapterId = at("Z", 4000).lines().map { it.trim() }.lastOrNull { it.isNotEmpty() } ?: ""
         log("adapter: $adapterId")
-        for (c in listOf("E0", "L0", "S0", "H1", "CAF1", "AT1", "SP$protocol")) {
+        val bad = mutableListOf<String>()
+        for (c in listOf("E0", "L0", "S0", "H1", "CAF1", "AT1", "SP$protocol", "SH7E0", "CRA7E8", "CRA")) {
             val r = at(c)
-            if (!r.contains("OK")) log("AT$c -> '$r'")
+            if (!r.contains("OK")) { log("AT$c -> '$r'"); bad += "AT$c" }
         }
+        adapterWarnings = bad
         header = null; rxFilter = null
     }
 

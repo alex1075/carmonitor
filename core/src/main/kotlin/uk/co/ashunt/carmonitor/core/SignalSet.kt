@@ -21,7 +21,8 @@ data class Fmt(
     val map: Map<String, String>? = null,
 )
 
-data class Signal(val id: String, val name: String, val path: String?, val fmt: Fmt, val hidden: Boolean = false)
+data class Signal(val id: String, val name: String, val path: String?, val fmt: Fmt, val hidden: Boolean = false,
+                  val suggestedMetric: String? = null)
 
 data class YearFilter(val from: Int? = null, val to: Int? = null, val years: Set<Int> = emptySet()) {
     /** OBDb semantics: matches if year <= to OR year >= from OR year in years. */
@@ -75,6 +76,7 @@ class SignalSet(val name: String, val commands: List<Command>) {
                     name = sm["name"]?.toString() ?: sm["id"].toString(),
                     path = sm["path"]?.toString(),
                     hidden = sm["hidden"] == true,
+                    suggestedMetric = sm["suggestedMetric"]?.toString(),
                     fmt = Fmt(
                         bix = f["bix"].asInt() ?: 0, len = f["len"].asInt() ?: 8,
                         mul = f["mul"].asDouble() ?: 1.0, div = f["div"].asDouble() ?: 1.0,

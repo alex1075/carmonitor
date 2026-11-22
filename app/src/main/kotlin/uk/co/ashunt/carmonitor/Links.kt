@@ -8,7 +8,6 @@ import uk.co.ashunt.carmonitor.core.ElmLink
 import uk.co.ashunt.carmonitor.core.MiniMqtt
 import uk.co.ashunt.carmonitor.core.Sink
 import uk.co.ashunt.carmonitor.core.StreamLink
-import uk.co.ashunt.carmonitor.core.Topics
 import java.io.IOException
 import java.util.UUID
 
@@ -52,6 +51,7 @@ object BtSpp {
 class ReconnectingMqtt(
     private val host: String, private val port: Int,
     private val user: String?, private val pass: String?,
+    private val willTopic: String,
     private val log: (String) -> Unit,
 ) : Sink {
     private var client: MiniMqtt? = null
@@ -78,7 +78,7 @@ class ReconnectingMqtt(
         lastAttempt = now
         return try {
             val c = MiniMqtt(host, port, "carmonitor-" + android.os.Build.MODEL.replace(' ', '-'),
-                user?.ifBlank { null }, pass?.ifBlank { null }, will = Topics.STATUS to "offline", log = log)
+                user?.ifBlank { null }, pass?.ifBlank { null }, will = willTopic to "offline", log = log)
             c.connect()
             client = c
             for ((t, p) in retained) c.publish(t, p, true)
