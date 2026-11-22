@@ -1,0 +1,323 @@
+{
+ "_about": "Local overlay for the Mazda 2.2 SkyActiv-D (SH-VPTS). Same schema as OBDb v3, plus 'validated' and 'note'. Commands here override OBDb ones with the same header+request.",
+ "commands": [
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "042B"
+   },
+   "freq": 5,
+   "validated": false,
+   "note": "Guess from mazda_monitor.py v3 (VALIDATE_ME). Confirm address and scaling against FORScan/Car Scanner, then set validated: true.",
+   "signals": [
+    {
+     "id": "MZD_SOOT_GL",
+     "name": "DPF soot load (PM_ACC) - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "div": 100,
+      "unit": "gramsPerLiter"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0532"
+   },
+   "freq": 5,
+   "validated": false,
+   "note": "Guess from mazda_monitor.py v3 (VALIDATE_ME). Confirm address and scaling against FORScan/Car Scanner, then set validated: true.",
+   "signals": [
+    {
+     "id": "MZD_DIST_SINCE_REGEN_KM",
+     "name": "Distance since last DPF regen - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "kilometers"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "03CB"
+   },
+   "freq": 5,
+   "validated": false,
+   "note": "Guess from mazda_monitor.py v3 (VALIDATE_ME). Confirm address and scaling against FORScan/Car Scanner, then set validated: true.",
+   "signals": [
+    {
+     "id": "MZD_EGT_POST_DPF",
+     "name": "Exhaust gas temperature post-DPF - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "div": 10,
+      "add": -40,
+      "unit": "celsius"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "03A0"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_03A0",
+     "name": "Candidate 2203A0",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0400"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_0400",
+     "name": "Candidate 220400",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0401"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_0401",
+     "name": "Candidate 220401",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0402"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_0402",
+     "name": "Candidate 220402",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "042A"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_042A",
+     "name": "Candidate 22042A",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "042C"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_042C",
+     "name": "Candidate 22042C",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0530"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_0530",
+     "name": "Candidate 220530",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0531"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_0531",
+     "name": "Candidate 220531",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0533"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_0533",
+     "name": "Candidate 220533",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "03C9"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_03C9",
+     "name": "Candidate 2203C9",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "03CA"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_03CA",
+     "name": "Candidate 2203CA",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "03CC"
+   },
+   "freq": 10,
+   "validated": false,
+   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "signals": [
+    {
+     "id": "MZD_CAND_03CC",
+     "name": "Candidate 2203CC",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  }
+ ]
+}
