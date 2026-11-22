@@ -3,7 +3,7 @@ package uk.co.ashunt.carmonitor.core
 import java.io.IOException
 
 data class LoggerConfig(
-    val publishExtras: Boolean = true,          // Topics.EXTRAS get HA sensors
+    val publishDefaults: Boolean = true,        // DefaultSignals (core J1979 + OBDb suggestedMetric) get HA sensors
     val publishAll: Boolean = false,            // every supported signal gets a sensor
     val publishCandidates: Boolean = true,      // unvalidated overlay DIDs as raw diagnostic sensors
     val minGapMs: Long = 60,                    // pause between requests
@@ -30,6 +30,7 @@ class LoggerEngine(
     set: SignalSet,
     private val profile: VehicleProfile,
     private val sink: Sink,
+    private val topics: TopicScheme = TopicScheme.forVehicle(null),
     private val cfg: LoggerConfig = LoggerConfig(),
     private val csv: CsvSink? = null,
     private val now: () -> Long = { System.currentTimeMillis() },
@@ -54,21 +55,25 @@ class LoggerEngine(
 
     val pollCount get() = polled.size
 
+    private val polledSignalIds: Set<String> = polled.flatMap { it.signals }.map { it.id }.toSet()
+    /** Only diesels with something DPF-ish get regen entities. */
+    private val hasDpf: Boolean = polledSignalIds.any { it.startsWith("DPF") || it.startsWith("PF_REGEN") || it.startsWith("MZD_") }
+
+    private fun wantsSensor(s: Signal): Boolean {
+        if (s.hidden || s.id.endsWith("_SUP") || s.id in topics.legacySources) return false
+        return cfg.publishAll || (cfg.publishDefaults && DefaultSignals.include(s))
+    }
+
     fun announce() {
-        sink.publish(Topics.STATUS, "online", true)
-        sink.publish(HaDiscovery.regenActive().first, HaDiscovery.regenActive().second, true)
+        sink.publish(topics.status, "online", true)
+        for ((t, p) in HaDiscovery.engineEntities(topics)) sink.publish(t, p, true)
+        if (hasDpf) HaDiscovery.regenActive(topics).let { sink.publish(it.first, it.second, true) }
         for (c in polled) {
             if (!c.validated) {
-                if (cfg.publishCandidates) HaDiscovery.forRaw(c.key).let { sink.publish(it.first, it.second, true) }
+                if (cfg.publishCandidates) HaDiscovery.forRaw(topics, c.key).let { sink.publish(it.first, it.second, true) }
                 continue
             }
-            for (s in c.signals) {
-                if (s.id in Topics.LEGACY_SOURCES && !s.hidden) continue
-                if (s.hidden || s.id.endsWith("_SUP")) continue
-                if (cfg.publishAll || (cfg.publishExtras && s.id in Topics.EXTRAS)) {
-                    HaDiscovery.forSignal(s).let { sink.publish(it.first, it.second, true) }
-                }
-            }
+            for (s in c.signals) if (wantsSensor(s)) HaDiscovery.forSignal(topics, s).let { sink.publish(it.first, it.second, true) }
         }
         log("polling ${polled.size} commands")
     }
@@ -79,7 +84,7 @@ class LoggerEngine(
             while (!stop()) step()
         } finally {
             if (tripActive) endTrip()
-            try { sink.publish(Topics.STATUS, "offline", true) } catch (_: Exception) {}
+            try { sink.publish(topics.status, "offline", true) } catch (_: Exception) {}
         }
     }
 
@@ -107,7 +112,7 @@ class LoggerEngine(
     private fun handle(c: Command, data: ByteArray, t: Long) {
         if (!c.validated) {
             val u16 = Decoder.bits(data, 0, 16) ?: Decoder.bits(data, 0, 8)
-            pub(Topics.rawTopic(c.key), MiniJson.write(linkedMapOf("u16" to u16, "hex" to data.toHex())), false)
+            pub(topics.rawTopic(c.key), MiniJson.write(linkedMapOf("u16" to u16, "hex" to data.toHex())), false)
             csv?.row(t, c.key, "raw", u16?.toString() ?: "", data.toHex())
         }
         for (s in c.signals) {
@@ -115,9 +120,7 @@ class LoggerEngine(
             values[s.id] = d to t
             val txt = when (d) { is Decoded.Num -> fmtNum(d.v); is Decoded.Text -> d.v }
             csv?.row(t, c.key, s.id, txt, if (c.validated) "" else data.toHex())
-            if (!c.validated || s.hidden || s.id.endsWith("_SUP")) continue
-            if (s.id !in Topics.LEGACY_SOURCES && (cfg.publishAll || (cfg.publishExtras && s.id in Topics.EXTRAS)))
-                pub(Topics.signalTopic(s.id), txt, false)
+            if (c.validated && wantsSensor(s)) pub(topics.signalTopic(s.id), txt, false)
         }
         if (c.validated) publishLegacy(c)
         updateTrip(t)
@@ -132,7 +135,7 @@ class LoggerEngine(
 
     private fun publishLegacy(c: Command) {
         val ids = c.signals.map { it.id }.toSet()
-        for (lt in Topics.LEGACY) {
+        for (lt in topics.legacyTopics) {
             if (lt.sources.none { it in ids }) continue
             val src = lt.sources.firstOrNull { validatedNum(it) != null && isValidatedSignal(it) } ?: continue
             pub(lt.topic, lt.format(validatedNum(src)!!), false)
@@ -160,11 +163,11 @@ class LoggerEngine(
             val v = (vss.first as Decoded.Num).v
             lastSpeedTs?.let { tripKm += v * (t - it) / 3_600_000.0 }
             lastSpeedTs = t
-            pub(Topics.TRIP_DIST, "%.1f".format(java.util.Locale.ROOT, tripKm * 0.621371), false)
+            pub(topics.tripDist, "%.1f".format(java.util.Locale.ROOT, tripKm * topics.distFactor), false)
         }
         // Regen: standard J1979 status if the ECU has it, else EGT threshold, plus soot drop.
         val stat = num("PF_REGEN_STAT")
-        val egt = listOf("MZD_EGT_POST_DPF", "DPF1_OUTT", "CX5_EXH_GAS_T_2").firstNotNullOfOrNull { if (isValidatedSignal(it)) num(it) else null }
+        val egt = POST_DPF_EGT.firstNotNullOfOrNull { if (isValidatedSignal(it)) num(it) else null }
         val nowRegen = when {
             stat != null -> stat >= 1.0
             egt != null -> egt >= cfg.regenEgtC
@@ -176,16 +179,17 @@ class LoggerEngine(
             if (tripMaxSoot!! - soot >= cfg.regenSootDropGl) tripRegen = true
         }
         if (nowRegen) tripRegen = true
-        if (nowRegen != regenActive || lastPub[Topics.REGEN_ACTIVE] == null) {
+        if (!hasDpf) return
+        if (nowRegen != regenActive || lastPub[topics.regenActive] == null) {
             regenActive = nowRegen
-            pub(Topics.REGEN_ACTIVE, if (nowRegen) "on" else "off", true, force = true)
+            pub(topics.regenActive, if (nowRegen) "on" else "off", true, force = true)
         }
     }
 
     private fun startTrip(t: Long) {
         tripActive = true; tripKm = 0.0; lastSpeedTs = null; tripRegen = false; tripMaxSoot = null
         log("trip START")
-        pub(Topics.TRIP_ACTIVE, "on", true, force = true)
+        pub(topics.tripActive, "on", true, force = true)
         readDtcs(); lastDtc = t
     }
 
@@ -193,20 +197,20 @@ class LoggerEngine(
         if (!tripActive) return
         tripActive = false; rpmAboveSince = null
         log("trip END %.1f km regen=%s".format(java.util.Locale.ROOT, tripKm, tripRegen))
-        pub(Topics.TRIP_ACTIVE, "off", true, force = true)
-        pub(Topics.LAST_TRIP_DIST, "%.1f".format(java.util.Locale.ROOT, tripKm * 0.621371), true, force = true)
-        pub(Topics.LAST_TRIP_REGEN, if (tripRegen) "yes" else "no", true, force = true)
-        if (regenActive) { regenActive = false; pub(Topics.REGEN_ACTIVE, "off", true, force = true) }
+        pub(topics.tripActive, "off", true, force = true)
+        pub(topics.lastTripDist, "%.1f".format(java.util.Locale.ROOT, tripKm * topics.distFactor), true, force = true)
+        if (hasDpf) pub(topics.lastTripRegen, if (tripRegen) "yes" else "no", true, force = true)
+        if (regenActive) { regenActive = false; pub(topics.regenActive, "off", true, force = true) }
     }
 
     private fun readDtcs() {
         val stored = (elm.request("03") as? ObdResponse.Positive)?.data?.let { Dtc.parse(it) }
         val pending = (elm.request("07") as? ObdResponse.Positive)?.data?.let { Dtc.parse(it) }
         if (stored != null) {
-            pub(Topics.DTC_COUNT, stored.size.toString(), true, force = true)
-            pub(Topics.DTC_CODES, stored.joinToString(",").ifEmpty { "none" }, true, force = true)
+            pub(topics.dtcCount, stored.size.toString(), true, force = true)
+            pub(topics.dtcCodes, stored.joinToString(",").ifEmpty { "none" }, true, force = true)
         }
-        if (pending != null) pub(Topics.DTC_PENDING, pending.joinToString(",").ifEmpty { "none" }, true, force = true)
+        if (pending != null) pub(topics.dtcPending, pending.joinToString(",").ifEmpty { "none" }, true, force = true)
     }
 
     private fun pub(topic: String, payload: String, retain: Boolean, force: Boolean = false) {
@@ -225,6 +229,8 @@ class LoggerEngine(
         if (v == Math.rint(v) && kotlin.math.abs(v) < 1e12) v.toLong().toString()
         else "%.3f".format(java.util.Locale.ROOT, v).trimEnd('0').trimEnd('.')
 }
+
+private val POST_DPF_EGT = listOf("MZD_EGT_POST_DPF", "DPF1_OUTT", "CX5_EXH_GAS_T_2")
 
 object Dtc {
     private val LETTER = charArrayOf('P', 'C', 'B', 'U')

@@ -3,6 +3,7 @@ package uk.co.ashunt.carmonitor
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -22,6 +23,9 @@ import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import uk.co.ashunt.carmonitor.core.ObdbCatalog
+import uk.co.ashunt.carmonitor.core.VehicleRef
+import uk.co.ashunt.carmonitor.core.Wmi
 import java.io.File
 
 /** Plain framework widgets, no AndroidX: one screen for setup, control and live values. */
@@ -39,6 +43,10 @@ class MainActivity : Activity() {
     private lateinit var cand: CheckBox
     private lateinit var boot: CheckBox
     private lateinit var status: TextView
+    private lateinit var vehicleLabel: TextView
+    private lateinit var topicBase: EditText
+    private lateinit var devName: EditText
+    private lateinit var legacy: CheckBox
     private lateinit var live: TextView
     private lateinit var log: TextView
     private var devices: List<Pair<String, String>> = emptyList()   // name, address
@@ -79,6 +87,18 @@ class MainActivity : Activity() {
         ))
         col.addView(row(button("Import overlay JSON") { importOverlay() }))
 
+        col.addView(label("Vehicle (OBDb signalset)"))
+        vehicleLabel = TextView(this); col.addView(vehicleLabel)
+        col.addView(row(
+            button("Choose vehicle…") { save(); chooseVehicle() },
+            button("Generic OBD-II only") { prefs.selectVehicle(null, "default.json"); refreshVehicle(); toast("Generic J1979 PIDs only. Run Discover.") },
+        ))
+        col.addView(label("MQTT topic base and HA device name"))
+        topicBase = edit(prefs.topicBase, "car/my_car"); col.addView(topicBase)
+        devName = edit(prefs.haDeviceName, "My car"); col.addView(devName)
+        legacy = CheckBox(this).apply { text = "Legacy CX-5 Pi-logger topics (mazda/cx5, miles, YAML entities)"; isChecked = prefs.legacyTopics }
+        col.addView(legacy)
+
         col.addView(label("OBD dongle (paired devices)"))
         device = Spinner(this); col.addView(device)
         col.addView(label("MQTT broker (HA's Mosquitto, via Tailscale/NetBird IP)"))
@@ -86,7 +106,7 @@ class MainActivity : Activity() {
         port = edit(prefs.brokerPort.toString(), "1883", InputType.TYPE_CLASS_NUMBER); col.addView(port)
         user = edit(prefs.brokerUser, "username"); col.addView(user)
         pass = edit(prefs.brokerPass, "password", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD); col.addView(pass)
-        col.addView(label("Model year (EU VINs have no year code)"))
+        col.addView(label("Model year (picks the OBDb year file; EU VINs have no year code)"))
         year = edit(prefs.modelYear.toString(), "2017", InputType.TYPE_CLASS_NUMBER); col.addView(year)
         col.addView(label("Sweep ranges (header:from-to, comma separated)"))
         sweep = edit(prefs.sweep, "7E0:0300-04FF"); col.addView(sweep)
@@ -101,6 +121,7 @@ class MainActivity : Activity() {
         log = TextView(this).apply { typeface = Typeface.MONOSPACE; textSize = 11f }; col.addView(log)
 
         setContentView(ScrollView(this).apply { addView(col) })
+        refreshVehicle()
         askPermissions()
     }
 
@@ -160,6 +181,68 @@ class MainActivity : Activity() {
         prefs.publishAll = all.isChecked
         prefs.publishCandidates = cand.isChecked
         prefs.autoStart = boot.isChecked
+        prefs.topicBase = topicBase.text.toString().trim().trim('/').ifBlank { prefs.topicBase }
+        prefs.haDeviceName = devName.text.toString().trim().ifBlank { prefs.haDeviceName }
+        prefs.legacyTopics = legacy.isChecked
+    }
+
+    private fun refreshVehicle() {
+        val v = prefs.vehicle()
+        vehicleLabel.text = (v?.label ?: "Generic OBD-II (SAE J1979 only)") +
+            (if (v != null) "  ·  ${prefs.signalsetFile}" + (if (prefs.hasSignalset()) "" else "  (not downloaded)") else "")
+        topicBase.setText(prefs.topicBase)
+        devName.setText(prefs.haDeviceName)
+        legacy.isChecked = prefs.legacyTopics
+    }
+
+    // --- OBDb vehicle picker ------------------------------------------------------
+    private fun chooseVehicle() {
+        val suggested = prefs.profile()?.vin?.let { Wmi.make(it) } ?: prefs.vehicle()?.make ?: ""
+        val q = EditText(this).apply { setText(suggested); hint = "e.g. CX-5, RAV4, Golf"; setSingleLine(true) }
+        AlertDialog.Builder(this)
+            .setTitle("Find your car in OBDb")
+            .setView(q)
+            .setPositiveButton("Search") { _, _ -> search(q.text.toString(), refresh = false) }
+            .setNeutralButton("Refresh list") { _, _ -> search(q.text.toString(), refresh = true) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun search(query: String, refresh: Boolean) {
+        toast(if (refresh) "Refreshing OBDb catalogue…" else "Searching…")
+        Thread {
+            try {
+                val all = ObdbClient(this).catalogue(refresh)
+                val hits = ObdbCatalog.search(all, query).take(200)
+                runOnUiThread {
+                    if (hits.isEmpty()) toast("No match for '$query'. OBDb may not have it yet - try the make only, or Generic.")
+                    else AlertDialog.Builder(this).setTitle("${hits.size} matches")
+                        .setItems(hits.map { it.label }.toTypedArray()) { _, i -> pick(hits[i], all) }
+                        .setNegativeButton("Cancel", null).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread { toast("OBDb: ${e.message}") }
+            }
+        }.start()
+    }
+
+    private fun pick(v: VehicleRef, all: List<VehicleRef>) {
+        toast("Downloading ${v.label}…")
+        val year = prefs.modelYear
+        Thread {
+            try {
+                val client = ObdbClient(this)
+                val file = client.download(v.repo, year)
+                ObdbCatalog.makeFallbackFor(v, all)?.let { mk -> try { client.download(mk.repo, year) } catch (_: Exception) {} }
+                runOnUiThread {
+                    prefs.selectVehicle(v, file)
+                    refreshVehicle()
+                    toast("${v.label}: $file for $year. Topics: ${prefs.topicBase}. Run Discover with the engine on.")
+                }
+            } catch (e: Exception) {
+                runOnUiThread { toast("Download failed: ${e.message}") }
+            }
+        }.start()
     }
 
     // --- Storage Access Framework export / import (no FileProvider needed) ----------

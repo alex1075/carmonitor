@@ -1,78 +1,102 @@
-# CarMonitor (Android)
+# CarMonitor
 
-Bluetooth ELM327 → MQTT → Home Assistant logger for the Mazda CX-5 2.2 SkyActiv-D (KF).
-It replaces the Pi Zero logger (`mazda_monitor.py` v3) with a spare Android phone. It publishes to the **same
-`mazda/cx5/*` topics**, so the existing HA package (the 15 entities, regen and fault automations, and the dashboard) works without
-any HA changes.
+Turns a spare Android phone and a Bluetooth ELM327 dongle into an always-on car telemetry logger for
+**Home Assistant**, over MQTT. It works with any car [OBDb](https://github.com/OBDb) covers (about 700 make/model
+repos), plus the generic SAE J1979 PIDs every OBD-II car speaks.
 
-## What it does
+- **Pick your car** from the OBDb catalogue. The app downloads that model's signalset (and the make-level fallback), choosing
+  the right year-range file, and caches it for offline use.
+- **Discover** what *your* car actually answers, then log only that.
+- **Home Assistant**: one MQTT-discovered device per car, sensors for the useful signals, trip and fault entities,
+  and DPF regen entities on diesels.
+- **Read-only by construction**: the app can't clear codes, write coding or run ECU routines (see *Safety*).
 
-- **Discover**: probes what the car actually answers and saves a vehicle profile on the phone.
-  1. Mode 01 support bitmaps and the VIN (Mode 09 02)
-  2. every command in the bundled [OBDb](https://github.com/OBDb) signalsets (SAE J1979 + Mazda CX-5) plus the
-     local diesel overlay, filtered by model year
-  3. *Discover + sweep* also scans Mode 22 DID ranges that you choose (Settings). Sweep hits go into the profile with
-     their raw bytes.
-- **Log**: polls only the signals in the profile, at the OBDb `freq` intervals. It also tracks trips (RPM/speed), regen (J1979 `01 8B`
-  status if the ECU has it, otherwise a post-DPF EGT threshold and a soot drop), and reads stored and pending DTCs (Mode 03/07). Every drive is also
-  written to a CSV (`ts_ms,key,signal,value,raw`) that you can export.
-- **HA**: legacy topics get raw values (they're defined in YAML, so the app sends no discovery for them). Extra signals (ECT, EOT, J1979 DPF
-  pressure/temps, regen status, OBDb CX-5 EGT, exhaust ΔP, EGR, oil dilution…) get MQTT discovery configs attached
-  to the existing `mazda_cx5` device. `mazda/cx5/logger/status` is the availability topic, with a last-will message.
+Docs: see the [wiki](../../wiki).
 
-## Read-only by construction
+## Which Bluetooth OBD dongle to buy
 
-`core/RequestGuard.kt` allowlists every byte sent to the adapter: services **01, 03, 07, 09, 22** with exact
-lengths, plus a fixed set of AT commands. It refuses everything else, including `04`/`14` (clear DTCs), `10` (session),
-`11` (reset), `27` (security), `2E` (write), `2F` (IO control) and `31` (routines, e.g. a forced regen). The self-test
-checks that the guard holds and that discovery and logging send nothing else.
+The app needs a **classic Bluetooth (SPP) ELM327-compatible** adapter. BLE-only dongles are not supported yet. It also relies on
+these AT commands working properly: `ATSH`, `ATCRA`, `ATH1`, `ATCAF1`, `ATAT1`, `ATSP`.
 
-## Diesel PIDs: validate before trusting
+| Adapter | Link | Verdict |
+|---|---|---|
+| **OBDLink LX Bluetooth** (ScanTool) | Bluetooth 3.0, SPP | **Recommended.** STN11xx chip with the full ELM327 command set, fast, auto sleep (BatterySaver) so it can stay plugged in. Android/Windows only (no iOS). About £90–95 in the UK. |
+| **Vgate iCar Pro (BT3.0/BLE4.0)** | dual mode | Budget option: use its classic BT side on Android. Check the listing says *BT3.0*. |
+| Vgate vLinker MC (Bluetooth 3.0) | classic BT | Should work (Android/Windows classic). |
+| Vgate iCar Pro **BLE 4.0** / **2S**, other BLE-only dongles | BLE only | Not supported yet. |
+| Unbranded "ELM327 v2.1 / v1.5" clones (£3–10) | varies | Avoid. Many reject half the ELM327 command set. |
 
-OBDb has no soot, regen or distance-since-regen DIDs for this engine. `assets/overlay/mazda-skyactiv-d.json` holds
-the v3 guesses (`22042B` soot, `220532` distance since regen, `2203CB` post-DPF EGT, plus neighbouring clusters), all
-with `"validated": false`. Unvalidated DIDs are only published as raw diagnostic sensors
-(`sensor.mazda_cx5_raw_7e0_22xxxx`, with `u16` as the state and the hex in attributes). They are never sent to the legacy topics.
+**Check yours:** if it pairs in Android's Bluetooth settings with a PIN (usually 1234 or 0000), it's classic. When it
+connects, the app logs any AT commands the adapter rejected ("adapter rejected … likely a poor ELM327 clone").
+Discovery also saves them in the profile.
 
-To validate one: drive with FORScan or Car Scanner showing the named PID (PM_ACC, PM_ACC_DSD, PM_GEN…), compare it with the
-exported CSV or the HA history, fix the `fmt` scaling, set `"validated": true`, then **Import overlay JSON** and **Discover** again.
-Validated entries feed `soot_gL`, `pm_acc_dsd_gL`, `dist_since_regen` and `egt_post_dpf_c`.
+**Leaving it plugged in:** pick an adapter with auto-sleep. A dongle that never sleeps will flatten a battery that's left for a week.
 
 ## Setup
 
-1. Pair the dongle in Android Bluetooth settings (classic SPP; the PIN is usually 1234 or 0000).
-2. Open the app and grant the Bluetooth and notification permissions.
-3. Pick the dongle. For the broker, use HA Mosquitto's Tailscale/NetBird IP, port 1883, and an HA user. Set the model year to **2017** (EU VINs have no year code, and
-   some OBDb filters depend on the year).
-4. Turn the engine on and tap **Discover**. Logging starts automatically when discovery finishes.
-5. Turn off battery optimisation for the app. The service stays up between drives and reconnects when the dongle wakes.
+1. Pair the dongle in Android Bluetooth settings.
+2. Install the APK (from [Releases](../../releases), or add the repo in Obtainium) and grant the Bluetooth and notification
+   permissions.
+3. **Vehicle → Choose vehicle…** and search (for example `RAV4`, `Golf`, `CX-5`). The make is pre-filled from the VIN once discovery
+   has run. Set the **model year** first: it selects the OBDb year file, and EU/JDM VINs carry no year code. If OBDb doesn't have your car,
+   use **Generic OBD-II only**.
+4. Set the MQTT broker (HA's Mosquitto add-on, ideally reached over Tailscale/NetBird rather than an open port), a user and a password.
+5. Engine on → **Discover**. Logging starts when discovery finishes. **Discover + sweep** also scans Mode 22 DID
+   ranges you choose (Settings), which helps find manufacturer values that OBDb doesn't document yet.
+6. Turn off battery optimisation for the app. The service waits between drives and reconnects when the dongle wakes.
+
+## Home Assistant
+
+The default topic base is `car/<make_model>` (for example `car/toyota_rav4`) and the device id is `carmonitor_<make_model>`. You can edit both
+in the app. Sensors appear through MQTT discovery under that device:
+
+- Signals OBDb marks with a `suggestedMetric`, plus core J1979 values (RPM, speed, coolant, oil, intake, battery voltage, load,
+  fuel level, MIL, and DPF pressure/temperatures and regen status where the car has them). Tick *Publish every supported signal* for everything.
+- Trip active / trip distance / last trip distance (km), fault count / codes / pending, and on diesels *DPF regen active* and
+  *last trip regen*.
+- `<base>/logger/status` is the availability topic, with a last-will message.
+
+**Legacy CX-5 preset:** choosing `Mazda-CX-5` applies the old Pi-logger layout (`mazda/cx5/*`, miles, device
+`mazda_cx5`), so an existing YAML package keeps working. Untick *Legacy CX-5 topics* to switch to the generic layout.
+
+## Overlays: manufacturer PIDs OBDb doesn't have yet
+
+An overlay is a JSON file in the OBDb v3 schema with two extra fields, `validated` and `note`. Its commands override OBDb's commands with the
+same header and request. Unvalidated commands are published only as raw diagnostic sensors (`u16` state, hex in the attributes) and in
+the per-drive CSV. That lets you compare them against FORScan or Car Scanner before trusting the scaling. Then set
+`"validated": true`, import it (**Import overlay JSON**) and run Discover again. Bundled: `overlay/Mazda-CX-5.json` (2.2 SkyActiv-D
+DPF soot, regen-distance and EGT candidates). If you confirm a PID, consider contributing it to OBDb.
+
+## Safety
+
+`core/RequestGuard.kt` allowlists every byte sent to the adapter: services **01, 03, 07, 09, 22**, each with exact
+lengths, plus a fixed set of AT commands. Everything else is refused, including `04`/`14` (clear DTCs), `10` (diagnostic session),
+`11` (ECU reset), `27` (security access), `2E` (write by identifier), `2F` (IO control) and `31` (routine control, for example forced
+regen). The self-test checks that discovery and logging send nothing else.
 
 ## Build
 
-CI (`.github/workflows/build.yml`) runs `:core:selfTest` and `:app:assembleRelease` on every push and attaches the
-APK to a GitHub release when you push a `v*` tag. Point Obtainium at the repo's releases.
-
-Updates only install in place if every build is signed with the same key. Create one once:
+CI runs `./gradlew :core:selfTest :app:assembleRelease` on every push and attaches a signed APK to a GitHub release
+for `v*` tags. One-time signing setup (so Obtainium updates install over the existing app):
 
 ```bash
-keytool -genkeypair -v -keystore carmonitor.jks -alias carmonitor -keyalg RSA -keysize 4096 -validity 10000
-gh secret set SIGNING_KEYSTORE_B64 < <(base64 -w0 carmonitor.jks)
-gh secret set SIGNING_STORE_PASSWORD; gh secret set SIGNING_KEY_ALIAS -b carmonitor; gh secret set SIGNING_KEY_PASSWORD
+keytool -genkeypair -v -keystore ~/keys/carmonitor.jks -alias carmonitor -keyalg RSA -keysize 4096 -validity 10000
+base64 -i ~/keys/carmonitor.jks | gh secret set SIGNING_KEYSTORE_B64      # Linux: base64 -w0
+gh secret set SIGNING_KEY_ALIAS -b carmonitor
+gh secret set SIGNING_STORE_PASSWORD -b 'your-password'
+gh secret set SIGNING_KEY_PASSWORD -b 'your-password'
 ```
 
-Local build: `./gradlew :core:selfTest :app:assembleDebug` (needs the Android SDK).
+Layout: `core/` is pure Kotlin/JVM with no dependencies (ELM327 driver with ISO-TP reassembly, request guard, OBDb parser and
+catalogue, discovery, logger engine, HA discovery, MQTT 3.1.1 client, JSON), tested by `:core:selfTest` against a
+simulated ECU. `app/` is the Android layer (Bluetooth SPP, foreground service, OBDb download, UI with framework widgets only).
 
-## Layout
+## Limits
 
-- `core/`: pure Kotlin/JVM with no dependencies, unit-testable: ELM327 driver + ISO-TP reassembly, request guard,
-  OBDb parser/decoder, discovery, logger engine, HA discovery, minimal MQTT 3.1.1 client, JSON.
-- `app/`: Android: Bluetooth SPP link, foreground service, boot receiver, settings/live screen (framework
-  widgets only, no AndroidX).
-
-## Known limits / next steps
-
-- Classic Bluetooth only (no BLE dongles yet).
-- Autostart works after a phone reboot, and the service waits for the dongle. Waking only when the car's Bluetooth appears
-  (CompanionDeviceManager presence) would save more battery.
+- Classic Bluetooth only, for now. CAN cars are the main target. Older K-line/J1850 cars may need a different `ATSP`.
+- OBDb coverage varies by model. Some repos are mostly petrol-car data, so diesel-specific values may need an overlay.
 - When the uplink is down, live values are dropped. Retained ones (trip summary, DTCs, discovery) are flushed on reconnect.
-- OBDb data: CC BY-SA 4.0, see `NOTICE.md`.
+
+## Licence and data
+
+OBDb data is CC BY-SA 4.0. See `NOTICE.md`.

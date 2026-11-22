@@ -100,7 +100,7 @@ object SelfTest {
             "cx5-diesel",
             SignalSet.parse("SAEJ1979", File(a, "obdb/SAEJ1979.json").readText()),
             SignalSet.parse("Mazda-CX-5", File(a, "obdb/Mazda-CX-5.json").readText()),
-            SignalSet.parse("overlay", File(a, "overlay/mazda-skyactiv-d.json").readText()),
+            SignalSet.parse("overlay", File(a, "overlay/Mazda-CX-5.json").readText()),
         )
     }
 
@@ -187,22 +187,24 @@ object SelfTest {
         val elm = Elm327(fake).also { it.init() }
         val out = mutableListOf<Triple<String, String, Boolean>>()
         var t = 1_000_000L
-        val eng = LoggerEngine(elm, lib, prof, { a, b, c -> out += Triple(a, b, c) },
+        val T = TopicScheme.MAZDA_CX5_LEGACY
+        val eng = LoggerEngine(elm, lib, prof, { a, b, c -> out += Triple(a, b, c) }, T,
             LoggerConfig(minGapMs = 0, publishMinIntervalMs = 0), now = { t }, sleep = { t += it })
         eng.announce()
-        check(out.any { it.first == Topics.STATUS && it.second == "online" && it.third }, "status online")
+        check(out.any { it.first == T.status && it.second == "online" && it.third }, "status online")
         check(out.any { it.first.startsWith("homeassistant/sensor/mazda_cx5_raw_7e0_22042b") }, "raw candidate discovery")
         check(out.none { it.first.contains("mazda_cx5_rpm/") }, "no discovery for legacy RPM")
+        check(out.none { it.first.contains("mazda_cx5_trip_active/") }, "legacy: no engine-entity discovery (YAML owns them)")
         check(out.any { it.first == "homeassistant/sensor/mazda_cx5_ect/config" && it.second.contains("\"identifiers\":[\"mazda_cx5\"]") },
             "extra ECT sensor joins existing device")
         fake.rpm = 820.0; fake.speed = 36.0
         repeat(400) { eng.step(); t += 100 }
         check(eng.tripActive, "trip started")
-        check(out.any { it.first == Topics.TRIP_ACTIVE && it.second == "on" }, "trip_active on")
+        check(out.any { it.first == T.tripActive && it.second == "on" }, "trip_active on")
         check(out.any { it.first == "mazda/cx5/rpm" && it.second == "820" }, "legacy rpm topic")
         check(out.any { it.first == "mazda/cx5/speed_kmh" && it.second == "36.0" }, "legacy speed topic")
-        check(out.any { it.first == Topics.DTC_CODES && it.second == "P0401,P24A5" }, "DTCs published")
-        check(out.any { it.first == Topics.DTC_PENDING && it.second == "none" }, "pending none")
+        check(out.any { it.first == T.dtcCodes && it.second == "P0401,P24A5" }, "DTCs published")
+        check(out.any { it.first == T.dtcPending && it.second == "none" }, "pending none")
         check(out.any { it.first == "mazda/cx5/raw/7E0_22042B" && it.second.contains("\"hex\":\"013F\"") }, "raw soot candidate")
         check(out.none { it.first == "mazda/cx5/soot_gL" }, "unvalidated soot NOT on legacy topic")
         check(out.any { it.first == "mazda/cx5/oil_dilution" && it.second == "4" }, "oil dilution from OBDb CX5_OIL_DIL_CNT")
@@ -210,15 +212,64 @@ object SelfTest {
         fake.rpm = 0.0; fake.speed = 0.0
         repeat(50) { eng.step(); t += 100 }
         check(!eng.tripActive, "trip ended")
-        val last = out.lastOrNull { it.first == Topics.LAST_TRIP_DIST }
+        val last = out.lastOrNull { it.first == T.lastTripDist }
         check(last != null && last.second.toDouble() > 0.1 && last.third, "last trip distance retained: $last")
-        check(out.any { it.first == Topics.LAST_TRIP_REGEN && it.second == "no" }, "no regen this trip")
+        check(out.any { it.first == T.lastTripRegen && it.second == "no" }, "no regen this trip")
         check(fake.sent.none { !RequestGuard.isAllowed(it) }, "logger sent only allowed commands")
         // Link loss propagates
         fake.alive = false
         var threw = false
         try { repeat(5) { eng.step() } } catch (_: java.io.IOException) { threw = true }
         check(threw, "link loss surfaces as IOException")
+    }
+
+
+    /** Same simulated ECU, but treated as a generic OBDb vehicle with its own topics/device. */
+    fun genericLogger(lib: SignalSet, prof: VehicleProfile) {
+        val fake = FakeCx5()
+        val elm = Elm327(fake).also { it.init() }
+        val out = mutableListOf<Triple<String, String, Boolean>>()
+        var t = 5_000_000L
+        val T = TopicScheme.forVehicle(VehicleRef("Toyota-RAV4", "Toyota", "RAV4"))
+        eq(T.base, "car/toyota_rav4", "generic topic base")
+        eq(T.deviceId, "carmonitor_toyota_rav4", "generic device id")
+        val eng = LoggerEngine(elm, lib, prof, { a, b, c -> out += Triple(a, b, c) }, T,
+            LoggerConfig(minGapMs = 0, publishMinIntervalMs = 0, publishCandidates = false), now = { t }, sleep = { t += it })
+        eng.announce()
+        check(out.any { it.first == "homeassistant/binary_sensor/carmonitor_toyota_rav4_trip_active/config" }, "generic trip entity discovery")
+        check(out.any { it.first == "homeassistant/sensor/carmonitor_toyota_rav4_rpm/config" }, "generic RPM gets a sensor")
+        check(out.none { it.first.startsWith("mazda/") }, "generic never touches mazda/ topics")
+        check(out.none { it.first.contains("_raw_") }, "candidates off -> no raw sensors")
+        val dtcCfg = out.first { it.first.endsWith("_dtc_codes/config") }.second
+        check(!dtcCfg.contains("availability_topic"), "retained DTC sensor has no availability gate")
+        fake.rpm = 900.0; fake.speed = 60.0
+        repeat(300) { eng.step(); t += 100 }
+        check(out.any { it.first == "car/toyota_rav4/sig/RPM" && it.second == "900" }, "generic RPM topic")
+        fake.rpm = 0.0
+        repeat(30) { eng.step(); t += 100 }
+        val last = out.lastOrNull { it.first == "car/toyota_rav4/trip/last_distance_km" }
+        check(last != null && last.second.toDouble() > 0.3, "generic last trip in km: $last")
+    }
+
+    fun catalog() {
+        eq(ObdbCatalog.parseRepoName("Toyota-RAV4"), VehicleRef("Toyota-RAV4", "Toyota", "RAV4"), "repo split")
+        eq(ObdbCatalog.parseRepoName("Mercedes-Benz-C-Class"), VehicleRef("Mercedes-Benz-C-Class", "Mercedes Benz", "C Class"), "multi-word make")
+        eq(ObdbCatalog.parseRepoName("Mazda")?.isMakeFallback, true, "make fallback repo")
+        eq(ObdbCatalog.parseRepoName("SAEJ1979"), null, "generic repo excluded")
+        eq(ObdbCatalog.parseRepoName(".github"), null, "dot repo excluded")
+        val page = """[{"name":"Mazda-CX-5"},{"name":"Mazda"},{"name":"Toyota-RAV4"},{"name":"SAEJ1979"},{"name":"Old-Car","archived":true},{"name":"obdb.community"}]"""
+        val all = ObdbCatalog.parseReposPage(page)
+        eq(all.map { it.repo }, listOf("Mazda-CX-5", "Mazda", "Toyota-RAV4"), "repo page parse")
+        eq(ObdbCatalog.search(all, "cx 5").map { it.repo }, listOf("Mazda-CX-5"), "search")
+        eq(ObdbCatalog.search(all, "", make = "Mazda").map { it.repo }, listOf("Mazda", "Mazda-CX-5"), "search by make, fallback first")
+        eq(ObdbCatalog.makeFallbackFor(all[0], all)?.repo, "Mazda", "make fallback lookup")
+        val files = ObdbCatalog.parseDirListing("""[{"name":"default.json"},{"name":"2012-2020.json"},{"name":"2017-2018.json"},{"name":"README.md"}]""")
+        eq(ObdbCatalog.chooseFile(files, 2017), "2017-2018.json", "narrowest year range wins")
+        eq(ObdbCatalog.chooseFile(files, 2014), "2012-2020.json", "year in wider range")
+        eq(ObdbCatalog.chooseFile(files, 2023), "default.json", "fallback to default")
+        eq(ObdbCatalog.chooseFile(files, null), "default.json", "no year -> default")
+        eq(Wmi.make("JMZXXXXXX00123456"), "Mazda", "WMI Mazda")
+        eq(Wmi.make("XXX"), null, "unknown WMI")
     }
 
     fun json() {
@@ -237,12 +288,15 @@ object SelfTest {
         decoding(lib)
         val prof = discovery(lib)
         logger(lib, prof)
+        genericLogger(lib, prof)
+        catalog()
+        eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,
-                will = Topics.STATUS to "offline")
+                will = TopicScheme.MAZDA_CX5_LEGACY.status to "offline")
             m.connect()
             check(m.connected, "mqtt connected")
-            m.publish(Topics.STATUS, "online", retain = true)
+            m.publish(TopicScheme.MAZDA_CX5_LEGACY.status, "online", retain = true)
             m.publish("mazda/cx5/rpm", "820")
             m.publish("homeassistant/sensor/x/config", "{\"k\":\"" + "v".repeat(300) + "\"}", retain = true)
             Thread.sleep(2500)   // let a PINGREQ go out

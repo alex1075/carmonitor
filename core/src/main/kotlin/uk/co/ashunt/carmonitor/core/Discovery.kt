@@ -13,6 +13,9 @@ data class VehicleProfile(
     val mode01Supported: Set<String>,
     val results: Map<String, ProbeResult>,
     val sweepHits: List<ProbeResult>,
+    val vehicleRepo: String? = null,
+    val signalsetFile: String? = null,
+    val adapterWarnings: List<String> = emptyList(),
 ) {
     fun supported(key: String) = results[key]?.support == Support.SUPPORTED ||
         sweepHits.any { it.key == key }
@@ -41,6 +44,8 @@ data class VehicleProfile(
                 results = results,
                 sweepHits = m["sweepHits"].asList().map { it.asMap() }
                     .map { ProbeResult(it["key"].toString(), Support.SUPPORTED, it["raw"] as? String, "sweep") },
+                vehicleRepo = m["vehicleRepo"] as? String, signalsetFile = m["signalsetFile"] as? String,
+                adapterWarnings = m["adapterWarnings"].asList().map { it.toString() },
             )
         }
 
@@ -66,6 +71,8 @@ data class SweepRange(val hdr: String, val from: Int, val to: Int) {
 
 data class DiscoverOptions(
     val yearOverride: Int? = null,
+    val vehicleRepo: String? = null,
+    val signalsetFile: String? = null,
     val sweep: List<SweepRange> = emptyList(),
     val delayMs: Long = 40,
 )
@@ -136,7 +143,8 @@ class Discoverer(
             }
         }
         progress(total, total, "done")
-        return VehicleProfile(vin, year, elm.adapterId, now(), sup01, results, hits)
+        return VehicleProfile(vin, year, elm.adapterId, now(), sup01, results, hits,
+            opts.vehicleRepo, opts.signalsetFile, elm.adapterWarnings)
     }
 
     private fun probe(key: String, req: String, hdr: String, rax: String?): ProbeResult =

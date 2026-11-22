@@ -6,94 +6,115 @@ fun interface Sink {
 }
 
 /**
- * Topics already consumed by the YAML package from the Pi logger (mazda_ha_package.yaml).
- * Publishing here brings the existing HA entities, automations and dashboard back
- * with no HA changes. No discovery is sent for these, to avoid duplicate entities.
- *
- * [sources] are signal ids in priority order; the first *validated* one with a value wins.
+ * Publishes a decoded signal (by id) to a fixed topic, bypassing discovery. Used by the
+ * legacy Mazda preset whose HA entities are defined in YAML on fixed topics.
+ * [sources] are signal ids in priority order; the first validated one with a value wins.
  */
 data class LegacyTopic(val topic: String, val sources: List<String>, val format: (Double) -> String)
 
-object Topics {
-    const val BASE = "mazda/cx5"
-    const val STATUS = "$BASE/logger/status"
-    const val DEVICE_ID = "mazda_cx5"        // matches the existing HA device identifier
-    private const val KM_TO_MI = 0.621371
+/**
+ * Per-vehicle MQTT/HA naming. Generic cars get `car/<slug>/…` topics and one HA device.
+ * [legacy] = the CX-5 Pi-logger topic layout (miles, fixed names, no discovery for those).
+ */
+data class TopicScheme(
+    val base: String,
+    val deviceId: String,
+    val deviceName: String,
+    val model: String? = null,
+    val legacy: Boolean = false,
+) {
+    val status get() = "$base/logger/status"
+    val tripActive get() = "$base/trip_active"
+    val tripDist get() = if (legacy) "$base/trip_distance_mi" else "$base/trip/distance_km"
+    val lastTripDist get() = if (legacy) "$base/trip/last_distance_mi" else "$base/trip/last_distance_km"
+    val lastTripRegen get() = "$base/trip/last_regen"
+    val dtcCount get() = "$base/dtc/count"
+    val dtcCodes get() = "$base/dtc/codes"
+    val dtcPending get() = "$base/dtc/pending"
+    val regenActive get() = "$base/regen_active"
+    /** Distance unit factor for engine-derived trip topics (km -> topic unit). */
+    val distFactor get() = if (legacy) KM_TO_MI else 1.0
 
-    private fun dp(n: Int): (Double) -> String = { v -> if (n == 0) Math.round(v).toString() else "%.${n}f".format(java.util.Locale.ROOT, v) }
+    fun signalTopic(id: String) = "$base/sig/$id"
+    fun rawTopic(key: String) = "$base/raw/" + key.replace(':', '_')
 
-    val LEGACY = listOf(
-        LegacyTopic("$BASE/rpm", listOf("RPM"), dp(0)),
-        LegacyTopic("$BASE/speed_kmh", listOf("VSS"), dp(1)),
-        LegacyTopic("$BASE/fuel_pct", listOf("FLI"), dp(0)),
-        LegacyTopic("$BASE/soot_gL", listOf("MZD_SOOT_GL"), dp(2)),
-        LegacyTopic("$BASE/pm_acc_dsd_gL", listOf("MZD_PM_ACC_DSD_GL"), dp(2)),
-        LegacyTopic("$BASE/egt_post_dpf_c", listOf("MZD_EGT_POST_DPF", "DPF1_OUTT", "CX5_EXH_GAS_T_2"), dp(0)),
-        LegacyTopic("$BASE/dist_since_regen", listOf("MZD_DIST_SINCE_REGEN_KM")) { v -> dp(1)(v * KM_TO_MI) },
-        LegacyTopic("$BASE/oil_dilution", listOf("MZD_OIL_DILUTION", "CX5_OIL_DIL_CNT"), dp(0)),
+    val legacyTopics: List<LegacyTopic> get() = if (!legacy) emptyList() else listOf(
+        LegacyTopic("$base/rpm", listOf("RPM"), dp(0)),
+        LegacyTopic("$base/speed_kmh", listOf("VSS"), dp(1)),
+        LegacyTopic("$base/fuel_pct", listOf("FLI"), dp(0)),
+        LegacyTopic("$base/soot_gL", listOf("MZD_SOOT_GL"), dp(2)),
+        LegacyTopic("$base/pm_acc_dsd_gL", listOf("MZD_PM_ACC_DSD_GL"), dp(2)),
+        LegacyTopic("$base/egt_post_dpf_c", listOf("MZD_EGT_POST_DPF", "DPF1_OUTT", "CX5_EXH_GAS_T_2"), dp(0)),
+        LegacyTopic("$base/dist_since_regen", listOf("MZD_DIST_SINCE_REGEN_KM")) { v -> dp(1)(v * KM_TO_MI) },
+        LegacyTopic("$base/oil_dilution", listOf("MZD_OIL_DILUTION", "CX5_OIL_DIL_CNT"), dp(0)),
     )
-    val LEGACY_SOURCES: Set<String> = LEGACY.flatMap { it.sources }.toSet()
+    val legacySources: Set<String> by lazy { legacyTopics.flatMap { it.sources }.toSet() }
 
-    // Engine-derived topics (also legacy)
-    const val TRIP_ACTIVE = "$BASE/trip_active"
-    const val TRIP_DIST = "$BASE/trip_distance_mi"
-    const val LAST_TRIP_DIST = "$BASE/trip/last_distance_mi"
-    const val LAST_TRIP_REGEN = "$BASE/trip/last_regen"
-    const val DTC_COUNT = "$BASE/dtc/count"
-    const val DTC_CODES = "$BASE/dtc/codes"
-    const val DTC_PENDING = "$BASE/dtc/pending"
-    // New topics (sent with discovery)
-    const val REGEN_ACTIVE = "$BASE/regen_active"
+    companion object {
+        const val KM_TO_MI = 0.621371
+        private fun dp(n: Int): (Double) -> String = { v -> if (n == 0) Math.round(v).toString() else "%.${n}f".format(java.util.Locale.ROOT, v) }
 
-    /** Extra signals worth a sensor in HA by default (if the car answers them). */
-    val EXTRAS = setOf(
-        "ECT", "EOT", "IAT", "MAP", "AAT", "BARO", "VPWR", "LOAD_PCT",
+        fun slug(s: String) = s.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
+
+        /** The CX-5 preset: keeps the Pi logger's topics so the existing HA YAML package keeps working. */
+        val MAZDA_CX5_LEGACY = TopicScheme("mazda/cx5", "mazda_cx5", "Mazda CX-5", "CX-5 2.2 SkyActiv-D (KF)", legacy = true)
+
+        /** Default scheme for any OBDb vehicle repo, e.g. "Toyota-RAV4" -> car/toyota_rav4. */
+        fun forVehicle(v: VehicleRef?): TopicScheme {
+            if (v == null) return TopicScheme("car/generic", "carmonitor_generic", "Car")
+            val s = slug(v.repo)
+            return TopicScheme("car/$s", "carmonitor_$s", "${v.make} ${v.model}".trim(), v.model)
+        }
+    }
+}
+
+/** Which signals get an HA sensor by default (when publishAll is off). */
+object DefaultSignals {
+    /** Core SAE J1979 signals that are useful on any car, if it answers them. */
+    val CORE = setOf(
+        "RPM", "VSS", "ECT", "EOT", "IAT", "MAP", "AAT", "BARO", "VPWR", "LOAD_PCT", "FLI", "CLR_DIST", "MIL", "DTC_CNT",
         "EGT11", "EGT12", "DPF1_DP", "DPF1_INP", "DPF1_OUTP", "DPF1_INT", "DPF1_OUTT",
         "PF_REGEN_STAT", "PF_REGEN_PCT", "PF_REGEN_AVGD", "PF_REGEN_AVGT", "PF_REGEN_TYPE",
-        "CX5_EXH_GAS_T_1", "CX5_EXH_GAS_T_2", "CX5_EXH_DIFF_P", "CX5_OIL_DIL_CNT",
-        "CX5_EGR_OPEN_MM", "CX5_EGR_OPEN_PERC", "CX5_EGR_DUTY", "CX5_OIL_CHANGE_DIST",
-        "CLR_DIST",
     )
 
-    fun signalTopic(id: String) = "$BASE/sig/$id"
-    fun rawTopic(key: String) = "$BASE/raw/" + key.replace(':', '_')
+    /** A signal is on by default if it's core J1979, or OBDb curated it with a suggestedMetric. */
+    fun include(s: Signal): Boolean = s.id in CORE || s.suggestedMetric != null
 }
 
 object HaDiscovery {
     private val UNIT = mapOf(
         "celsius" to "°C", "kilopascal" to "kPa", "kilometersPerHour" to "km/h", "kilometers" to "km",
         "percent" to "%", "volts" to "V", "rpm" to "rpm", "minutes" to "min", "seconds" to "s",
-        "bars" to "bar", "degrees" to "°", "gramsPerLiter" to "g/L", "millimeters" to "mm", "gramsPerSecond" to "g/s",
+        "bars" to "bar", "degrees" to "°", "gramsPerLiter" to "g/L",
+        "millimeters" to "mm", "gramsPerSecond" to "g/s",
         "litersPerHour" to "L/h", "newtonMeters" to "N·m", "hertz" to "Hz", "milliamperes" to "mA",
+        "amps" to "A", "kilowatts" to "kW", "kilowattHours" to "kWh", "liters" to "L", "psi" to "psi",
     )
     private val DEVICE_CLASS = mapOf(
-        "celsius" to "temperature", "kilopascal" to "pressure", "bars" to "pressure",
+        "celsius" to "temperature", "kilopascal" to "pressure", "bars" to "pressure", "psi" to "pressure",
         "volts" to "voltage", "kilometers" to "distance", "kilometersPerHour" to "speed",
         "millimeters" to "distance", "minutes" to "duration", "seconds" to "duration",
+        "amps" to "current", "kilowatts" to "power", "kilowattHours" to "energy",
     )
     private val BINARY_UNITS = setOf("offon", "noyes", "yesno")
 
-    private val device = linkedMapOf<String, Any?>(
-        "identifiers" to listOf(Topics.DEVICE_ID), "name" to "Mazda CX-5",
-        "manufacturer" to "Mazda", "model" to "CX-5 2.2 SkyActiv-D (KF)",
-    )
+    private fun device(t: TopicScheme) = linkedMapOf<String, Any?>(
+        "identifiers" to listOf(t.deviceId), "name" to t.deviceName,
+    ).also { m -> t.model?.let { m["model"] = it } }
 
     fun isBinary(s: Signal) = s.fmt.unit in BINARY_UNITS
 
+    private fun base(t: TopicScheme, uid: String, name: String, state: String) = linkedMapOf<String, Any?>(
+        "name" to name, "unique_id" to uid, "object_id" to uid, "state_topic" to state,
+        "availability_topic" to t.status, "device" to device(t),
+    )
+
     /** (config topic, payload) for one signal's sensor. */
-    fun forSignal(s: Signal, expireAfterSec: Int = 180): Pair<String, String> {
-        val uid = "${Topics.DEVICE_ID}_${s.id.lowercase()}"
+    fun forSignal(t: TopicScheme, s: Signal, expireAfterSec: Int = 180): Pair<String, String> {
+        val uid = "${t.deviceId}_${s.id.lowercase()}"
         val binary = isBinary(s)
-        val comp = if (binary) "binary_sensor" else "sensor"
-        val cfg = linkedMapOf<String, Any?>(
-            "name" to s.name.replaceFirstChar { it.uppercase() },
-            "unique_id" to uid,
-            "object_id" to uid,
-            "state_topic" to Topics.signalTopic(s.id),
-            "availability_topic" to Topics.STATUS,
-            "expire_after" to expireAfterSec,
-            "device" to device,
-        )
+        val cfg = base(t, uid, s.name.replaceFirstChar { it.uppercase() }, t.signalTopic(s.id))
+        cfg["expire_after"] = expireAfterSec
         if (binary) {
             cfg["payload_on"] = "1"; cfg["payload_off"] = "0"
         } else if (s.fmt.map == null) {
@@ -101,32 +122,43 @@ object HaDiscovery {
             DEVICE_CLASS[s.fmt.unit]?.let { cfg["device_class"] = it }
             cfg["state_class"] = "measurement"
         }
-        return "homeassistant/$comp/$uid/config" to MiniJson.write(cfg)
+        return "homeassistant/${if (binary) "binary_sensor" else "sensor"}/$uid/config" to MiniJson.write(cfg)
     }
 
-    fun forRaw(key: String): Pair<String, String> {
-        val uid = "${Topics.DEVICE_ID}_raw_" + key.replace(':', '_').lowercase()
-        val cfg = linkedMapOf<String, Any?>(
-            "name" to "Raw ${key.replace(':', ' ')}",
-            "unique_id" to uid, "object_id" to uid,
-            "state_topic" to Topics.rawTopic(key),
-            "value_template" to "{{ value_json.u16 }}",
-            "json_attributes_topic" to Topics.rawTopic(key),
-            "availability_topic" to Topics.STATUS,
-            "expire_after" to 180, "state_class" to "measurement",
-            "entity_category" to "diagnostic",
-            "device" to device,
-        )
+    fun forRaw(t: TopicScheme, key: String): Pair<String, String> {
+        val uid = "${t.deviceId}_raw_" + key.replace(':', '_').lowercase()
+        val cfg = base(t, uid, "Raw ${key.replace(':', ' ')}", t.rawTopic(key))
+        cfg["value_template"] = "{{ value_json.u16 }}"
+        cfg["json_attributes_topic"] = t.rawTopic(key)
+        cfg["expire_after"] = 180; cfg["state_class"] = "measurement"; cfg["entity_category"] = "diagnostic"
         return "homeassistant/sensor/$uid/config" to MiniJson.write(cfg)
     }
 
-    fun regenActive(): Pair<String, String> {
-        val uid = "${Topics.DEVICE_ID}_regen_active"
-        return "homeassistant/binary_sensor/$uid/config" to MiniJson.write(linkedMapOf(
-            "name" to "DPF regen active", "unique_id" to uid, "object_id" to uid,
-            "state_topic" to Topics.REGEN_ACTIVE, "payload_on" to "on", "payload_off" to "off",
-            "availability_topic" to Topics.STATUS, "expire_after" to 180, "icon" to "mdi:fire",
-            "device" to device,
-        ))
+    fun regenActive(t: TopicScheme): Pair<String, String> {
+        val uid = "${t.deviceId}_regen_active"
+        val cfg = base(t, uid, "DPF regen active", t.regenActive)
+        cfg["payload_on"] = "on"; cfg["payload_off"] = "off"; cfg["icon"] = "mdi:fire"
+        return "homeassistant/binary_sensor/$uid/config" to MiniJson.write(cfg)
+    }
+
+    /** Engine-derived entities for non-legacy schemes (legacy ones live in the user's YAML). */
+    fun engineEntities(t: TopicScheme): List<Pair<String, String>> {
+        if (t.legacy) return emptyList()
+        fun sensor(key: String, name: String, topic: String, extra: Map<String, Any?> = emptyMap(), comp: String = "sensor"): Pair<String, String> {
+            val uid = "${t.deviceId}_$key"
+            val cfg = base(t, uid, name, topic); cfg.putAll(extra)
+            // Trip summaries and DTCs are retained facts: keep them visible while the car is off.
+            if (key != "trip_active") cfg.remove("availability_topic")
+            return "homeassistant/$comp/$uid/config" to MiniJson.write(cfg)
+        }
+        return listOf(
+            sensor("trip_active", "Trip active", t.tripActive, mapOf("payload_on" to "on", "payload_off" to "off", "device_class" to "moving"), "binary_sensor"),
+            sensor("trip_distance", "Trip distance", t.tripDist, mapOf("unit_of_measurement" to "km", "device_class" to "distance", "state_class" to "measurement")),
+            sensor("last_trip_distance", "Last trip distance", t.lastTripDist, mapOf("unit_of_measurement" to "km", "device_class" to "distance")),
+            sensor("last_trip_regen", "Last trip regen", t.lastTripRegen, mapOf("icon" to "mdi:fire")),
+            sensor("dtc_count", "Fault count", t.dtcCount, mapOf("icon" to "mdi:alert-circle", "state_class" to "measurement")),
+            sensor("dtc_codes", "Fault codes", t.dtcCodes, mapOf("icon" to "mdi:alert")),
+            sensor("dtc_pending", "Pending faults", t.dtcPending, mapOf("icon" to "mdi:alert-outline")),
+        )
     }
 }

@@ -95,13 +95,15 @@ class ObdService : Service() {
 
     private fun loop() {
         val prefs = Prefs(this)
-        val mqtt = ReconnectingMqtt(prefs.brokerHost, prefs.brokerPort, prefs.brokerUser, prefs.brokerPass) {
+        val scheme = prefs.scheme()
+        val mqtt = ReconnectingMqtt(prefs.brokerHost, prefs.brokerPort, prefs.brokerUser, prefs.brokerPass, scheme.status) {
             Status.log(it)
         }
         try {
             while (running) {
                 val addr = prefs.deviceAddress
                 if (addr == null) { setState("no dongle selected", ""); sleep(5000); continue }
+                if (!prefs.hasSignalset()) { setState("vehicle signalset not downloaded", "choose the vehicle again"); sleep(10_000); continue }
                 if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                     setState("needs Bluetooth permission", ""); sleep(5000); continue
                 }
@@ -114,6 +116,8 @@ class ObdService : Service() {
                     val elm = Elm327(link, log = { Status.log(it) })
                     elm.init()
                     Status.log("connected, ${elm.voltage()}")
+                    if (elm.adapterWarnings.isNotEmpty())
+                        Status.log("adapter rejected ${elm.adapterWarnings.joinToString()} - likely a poor ELM327 clone, see README")
                     val lib = prefs.library()
                     var profile = prefs.profile()
                     val want = discoverRequested
@@ -121,7 +125,8 @@ class ObdService : Service() {
                         discoverRequested = null
                         val sweep = if (want == true) prefs.sweepRanges() else emptyList()
                         setState(if (sweep.isEmpty()) "discovering" else "discovering + sweep", "")
-                        profile = Discoverer(elm, lib, DiscoverOptions(yearOverride = prefs.modelYear, sweep = sweep),
+                        profile = Discoverer(elm, lib, DiscoverOptions(yearOverride = prefs.modelYear, sweep = sweep,
+                            vehicleRepo = prefs.vehicleRepo.ifBlank { null }, signalsetFile = prefs.signalsetFile),
                             progress = { d, t, l -> Status.detail = "$d / $t  $l"; if (d % 25 == 0) updateNote("Discovering $d/$t") },
                             cancelled = { !running }).run()
                         prefs.profileFile.writeText(profile.toJson())
@@ -131,7 +136,7 @@ class ObdService : Service() {
                     val csvFile = File(prefs.logDir, "drive-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date()) + ".csv")
                     csvFile.bufferedWriter().use { w ->
                         w.write("ts_ms,key,signal,value,raw\n")
-                        val engine = LoggerEngine(elm, lib, profile, mqtt, prefs.loggerConfig(),
+                        val engine = LoggerEngine(elm, lib, profile, mqtt, scheme, prefs.loggerConfig(),
                             csv = csvRow(w), log = { Status.log(it) })
                         setState("logging", "${engine.pollCount} commands")
                         updateNote("Logging ${engine.pollCount} signals")
@@ -193,7 +198,7 @@ class ObdService : Service() {
         val stop = PendingIntent.getService(this, 1, Intent(this, ObdService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_car)
-            .setContentTitle("CarMonitor")
+            .setContentTitle("CarMonitor · " + Prefs(this).scheme().deviceName)
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
