@@ -1,0 +1,12 @@
+# Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| "dongle not reachable" | Ignition off (many dongles sleep), not paired, or another app holds the connection. Close Car Scanner/Torque. |
+| "adapter rejected AT…" | Poor clone. See [[Choosing a dongle|Choosing-a-Dongle]]. |
+| Discovery finds almost nothing | Wrong model year or vehicle; a K-line/J1850 car (try another `ATSP`); or Mode 22 blocked by a gateway (some newer cars). |
+| "vehicle signalset not downloaded" | Choose the vehicle again while online. |
+| OBDb search: "rate limit" | GitHub allows 60 unauthenticated API requests an hour. Wait, or use the cached list (*Search*, not *Refresh list*). |
+| No entities in HA | Check the broker IP, port and user. The log shows `mqtt connected`. In HA, *Settings → Devices → MQTT*. |
+| Entities "unavailable" when parked | Expected: live sensors expire when nothing is publishing. Trip and DTC entities stay. |
+| Logger stops overnight | Battery optimisation. Set the app to *Unrestricted*. |

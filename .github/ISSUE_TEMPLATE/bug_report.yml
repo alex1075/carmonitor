@@ -1,0 +1,36 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: { required: true }
+  - type: input
+    id: vehicle
+    attributes:
+      label: Vehicle (make, model, year, fuel)
+      placeholder: Mazda CX-5 2017 2.2 diesel
+    validations: { required: true }
+  - type: input
+    id: dongle
+    attributes:
+      label: OBD dongle and ATZ banner
+      placeholder: OBDLink LX, "ELM327 v1.4b"
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: CarMonitor version / Android version / phone
+      placeholder: v0.2.0, Android 16, Pixel 9
+  - type: textarea
+    id: log
+    attributes:
+      label: App log (from the Log section)
+      render: text
+  - type: textarea
+    id: profile
+    attributes:
+      label: Exported profile JSON (optional; trim the VIN if you like)
+      render: json
