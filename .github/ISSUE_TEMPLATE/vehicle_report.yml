@@ -1,0 +1,35 @@
+name: Vehicle report / PID finding
+description: Share what your car answered, or a PID you validated
+labels: [vehicle-data]
+body:
+  - type: input
+    id: vehicle
+    attributes:
+      label: Vehicle (make, model, year, engine, market)
+    validations: { required: true }
+  - type: input
+    id: obdb
+    attributes:
+      label: OBDb repo and file used
+      placeholder: Mazda-CX-5 / default.json
+  - type: input
+    id: dongle
+    attributes:
+      label: Dongle and ATZ banner
+    validations: { required: true }
+  - type: textarea
+    id: finding
+    attributes:
+      label: Finding
+      description: e.g. "22042B = DPF soot g/L, (A*256+B)/100, matches FORScan PM_ACC within 0.05"
+  - type: textarea
+    id: profile
+    attributes:
+      label: Exported profile JSON
+      render: json
+  - type: checkboxes
+    id: upstream
+    attributes:
+      label: Upstream
+      options:
+        - label: I'm happy for validated PIDs to be contributed to OBDb (CC BY-SA 4.0)

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/alex1075/carmonitor/security/advisories/new
+    about: Report request-guard bypasses or data leaks privately.
+  - name: Car not in OBDb?
+    url: https://github.com/OBDb
+    about: Request or contribute your vehicle's signalset upstream.

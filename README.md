@@ -11,7 +11,7 @@ repos), plus the generic SAE J1979 PIDs every OBD-II car speaks.
   and DPF regen entities on diesels.
 - **Read-only by construction**: the app can't clear codes, write coding or run ECU routines (see *Safety*).
 
-Docs: see the [wiki](../../wiki).
+Docs: see the [wiki](../../wiki) (sources in `docs/wiki/`). Licence: [MIT](LICENSE) for the code; OBDb data is CC BY-SA 4.0.
 
 ## Which Bluetooth OBD dongle to buy
 
@@ -99,4 +99,4 @@ simulated ECU. `app/` is the Android layer (Bluetooth SPP, foreground service, O
 
 ## Licence and data
 
-OBDb data is CC BY-SA 4.0. See `NOTICE.md`.
+Code: [MIT](LICENSE). OBDb data: CC BY-SA 4.0, see `NOTICE.md`. Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Security](SECURITY.md).
