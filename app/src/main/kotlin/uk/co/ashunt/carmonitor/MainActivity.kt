@@ -4,7 +4,13 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.os.Build
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -101,6 +107,7 @@ class MainActivity : Activity() {
 
         col.addView(label("OBD dongle (paired devices)"))
         device = Spinner(this); col.addView(device)
+        col.addView(row(button("Scan & pair…") { scanAndPair() }))
         col.addView(label("MQTT broker (HA's Mosquitto, via Tailscale/NetBird IP)"))
         host = edit(prefs.brokerHost, "100.x.y.z"); col.addView(host)
         port = edit(prefs.brokerPort.toString(), "1883", InputType.TYPE_CLASS_NUMBER); col.addView(port)
@@ -155,6 +162,90 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         loadDevices()
+        if (requestCode == 2 && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) scanAndPair()
+    }
+
+    override fun onDestroy() {
+        stopScan()
+        scanReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
+        scanReceiver = null
+        super.onDestroy()
+    }
+
+    // --- Scan & pair (classic Bluetooth discovery) ----------------------------------
+    private var scanReceiver: BroadcastReceiver? = null
+    private val found = LinkedHashMap<String, BluetoothDevice>()
+
+    private fun adapter(): BluetoothAdapter? = getSystemService(BluetoothManager::class.java)?.adapter
+
+    @SuppressLint("MissingPermission")
+    private fun scanAndPair() {
+        val need = listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+            .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (need.isNotEmpty()) { requestPermissions(need.toTypedArray(), 2); return }
+        val ad = adapter() ?: run { toast("No Bluetooth adapter"); return }
+        if (!ad.isEnabled) { toast("Turn Bluetooth on first"); return }
+        stopScan()
+        scanReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
+        found.clear()
+        val r = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                when (intent.action) {
+                    BluetoothDevice.ACTION_FOUND -> {
+                        val d = deviceExtra(intent) ?: return
+                        // OBD dongles are classic (SPP); skip BLE-only advertisers
+                        if (d.type == BluetoothDevice.DEVICE_TYPE_LE) return
+                        if (d.bondState == BluetoothDevice.BOND_BONDED) return
+                        found[d.address] = d
+                    }
+                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> { stopScan(); showFound() }
+                    BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
+                        val d = deviceExtra(intent) ?: return
+                        if (d.bondState == BluetoothDevice.BOND_BONDED) {
+                            prefs.deviceAddress = d.address
+                            loadDevices()
+                            toast("Paired with ${d.name ?: d.address}")
+                        }
+                    }
+                }
+            }
+        }
+        val f = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        }
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(r, f, Context.RECEIVER_EXPORTED) else registerReceiver(r, f)
+        scanReceiver = r
+        if (ad.isDiscovering) ad.cancelDiscovery()
+        if (ad.startDiscovery()) toast("Scanning ~12 s… ignition on, dongle plugged in")
+        else { stopScan(); toast("Couldn't start a Bluetooth scan") }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun deviceExtra(i: Intent): BluetoothDevice? =
+        if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+        else i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+
+    @SuppressLint("MissingPermission")
+    private fun stopScan() {
+        try { if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) adapter()?.cancelDiscovery() } catch (_: Exception) {}
+        // keep the receiver for bond-state events until the next scan or onDestroy
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun showFound() {
+        if (found.isEmpty()) {
+            toast("No unpaired classic Bluetooth devices found. Is the ignition on? BLE-only dongles aren't supported yet.")
+            return
+        }
+        val list = found.values.sortedByDescending { d -> d.name?.let { n -> listOf("OBD", "ELM", "VLINK", "V-LINK", "OBDLINK", "ICAR", "VGATE").any { n.uppercase().contains(it) } } ?: false }
+        AlertDialog.Builder(this).setTitle("Pick your OBD dongle")
+            .setItems(list.map { "${it.name ?: "(no name)"}  ${it.address}" }.toTypedArray()) { _, i ->
+                val d = list[i]
+                if (!d.createBond()) toast("Pairing didn't start") else toast("Pairing… enter the PIN if asked (often 1234 or 0000)")
+            }
+            .setNegativeButton("Cancel", null).show()
     }
 
     @SuppressLint("MissingPermission")

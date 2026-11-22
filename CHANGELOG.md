@@ -1,6 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.1] - 2026-11-22
+### Fixed
+- Crash loop on connect: `cancelDiscovery()` needs `BLUETOOTH_SCAN` on Android 12+; removed, and the worker can no longer crash the service.
+### Added
+- **Scan & pair…**: find and pair a classic Bluetooth OBD dongle from inside the app.
+
+## [0.2.0] - 2026-11-22
 ### Added
 - Car-agnostic mode: OBDb catalogue search, runtime signalset download with year-range file choice and make fallback.
 - Per-vehicle MQTT topics and HA device; generic trip/DTC entities via discovery.
