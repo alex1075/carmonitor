@@ -141,6 +141,15 @@ object HaDiscovery {
         return "homeassistant/binary_sensor/$uid/config" to MiniJson.write(cfg)
     }
 
+    /** Diagnostic sensor used by the app's "Test HA connection" button. */
+    fun connectionTest(t: TopicScheme): Pair<String, String> {
+        val uid = "${t.deviceId}_connection_test"
+        val cfg = base(t, uid, "Connection test", "${t.base}/test")
+        cfg.remove("availability_topic")
+        cfg["entity_category"] = "diagnostic"; cfg["icon"] = "mdi:lan-check"
+        return "homeassistant/sensor/$uid/config" to MiniJson.write(cfg)
+    }
+
     /** Engine-derived entities for non-legacy schemes (legacy ones live in the user's YAML). */
     fun engineEntities(t: TopicScheme): List<Pair<String, String>> {
         if (t.legacy) return emptyList()

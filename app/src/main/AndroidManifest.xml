@@ -17,6 +17,7 @@
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
 
     <application
+        android:name=".CarMonitorApp"
         android:label="CarMonitor"
         android:icon="@drawable/ic_car"
         android:allowBackup="false"

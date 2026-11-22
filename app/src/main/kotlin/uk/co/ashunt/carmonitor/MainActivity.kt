@@ -20,6 +20,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.view.View
+import android.view.WindowInsets
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
@@ -91,7 +92,10 @@ class MainActivity : Activity() {
                 if (f == null) toast("No drives yet") else export(f, f.name, "text/csv")
             },
         ))
-        col.addView(row(button("Import overlay JSON") { importOverlay() }))
+        col.addView(row(
+            button("Import overlay JSON") { importOverlay() },
+            button("Export app log") { exportLog() },
+        ))
 
         col.addView(label("Vehicle (OBDb signalset)"))
         vehicleLabel = TextView(this); col.addView(vehicleLabel)
@@ -120,14 +124,24 @@ class MainActivity : Activity() {
         all = CheckBox(this).apply { text = "Publish every supported signal to HA"; isChecked = prefs.publishAll }; col.addView(all)
         cand = CheckBox(this).apply { text = "Publish unvalidated diesel candidates (raw)"; isChecked = prefs.publishCandidates }; col.addView(cand)
         boot = CheckBox(this).apply { text = "Start on boot"; isChecked = prefs.autoStart }; col.addView(boot)
-        col.addView(row(button("Save settings") { save(); toast("Saved. Stop/Start to apply.") }))
+        col.addView(row(
+            button("Save settings") { save(); toast("Saved. Stop/Start to apply.") },
+            button("Test HA connection") { save(); testMqtt() },
+        ))
 
         col.addView(label("Live"))
         live = TextView(this).apply { typeface = Typeface.MONOSPACE; textSize = 12f }; col.addView(live)
         col.addView(label("Log"))
         log = TextView(this).apply { typeface = Typeface.MONOSPACE; textSize = 11f }; col.addView(log)
 
-        setContentView(ScrollView(this).apply { addView(col) })
+        val root = ScrollView(this).apply { addView(col) }
+        // targetSdk 35+ is edge-to-edge: pad by the status/nav bars and the keyboard.
+        root.setOnApplyWindowInsetsListener { v, insets ->
+            val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            WindowInsets.CONSUMED
+        }
+        setContentView(root)
         refreshVehicle()
         askPermissions()
     }
@@ -307,9 +321,12 @@ class MainActivity : Activity() {
                 val hits = ObdbCatalog.search(all, query).take(200)
                 runOnUiThread {
                     if (hits.isEmpty()) toast("No match for '$query'. OBDb may not have it yet - try the make only, or Generic.")
-                    else AlertDialog.Builder(this).setTitle("${hits.size} matches")
-                        .setItems(hits.map { it.label }.toTypedArray()) { _, i -> pick(hits[i], all) }
-                        .setNegativeButton("Cancel", null).show()
+                    else {
+                        var dlg: AlertDialog? = null
+                        dlg = AlertDialog.Builder(this).setTitle("${hits.size} matches")
+                            .setItems(hits.map { it.label }.toTypedArray()) { d, i -> d.dismiss(); dlg?.dismiss(); pick(hits[i], all) }
+                            .setNegativeButton("Cancel", null).show()
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread { toast("OBDb: ${e.message}") }
@@ -318,21 +335,47 @@ class MainActivity : Activity() {
     }
 
     private fun pick(v: VehicleRef, all: List<VehicleRef>) {
-        toast("Downloading ${v.label}…")
         val year = prefs.modelYear
+        val busy = AlertDialog.Builder(this).setTitle(v.label)
+            .setMessage("Downloading the OBDb signalset for $year…").setCancelable(false).show()
         Thread {
             try {
                 val client = ObdbClient(this)
                 val file = client.download(v.repo, year)
                 ObdbCatalog.makeFallbackFor(v, all)?.let { mk -> try { client.download(mk.repo, year) } catch (_: Exception) {} }
                 runOnUiThread {
+                    busy.dismiss()
                     prefs.selectVehicle(v, file)
                     refreshVehicle()
                     toast("${v.label}: $file for $year. Topics: ${prefs.topicBase}. Run Discover with the engine on.")
                 }
             } catch (e: Exception) {
-                runOnUiThread { toast("Download failed: ${e.message}") }
+                runOnUiThread { busy.dismiss(); toast("Download failed: ${e.message}") }
             }
+        }.start()
+    }
+
+    /** App log + this process's logcat + last crash, as one text file. */
+    private fun exportLog() {
+        Thread {
+            val sb = StringBuilder()
+            val p = prefs.profile()
+            sb.append("CarMonitor ").append(packageManager.getPackageInfo(packageName, 0).versionName)
+                .append(" · Android ").append(Build.VERSION.RELEASE).append(" · ").append(Build.MODEL).append('\n')
+            sb.append("vehicle: ").append(prefs.vehicle()?.label ?: "generic").append(" / ").append(prefs.signalsetFile)
+                .append(" · year ").append(prefs.modelYear).append(" · topics ").append(prefs.topicBase).append('\n')
+            sb.append("status: ").append(Status.state).append(" ").append(Status.detail).append('\n')
+            p?.let { sb.append("profile: adapter='").append(it.adapter).append("' warnings=").append(it.adapterWarnings).append('\n') }
+            CrashLog.file(this).takeIf { it.exists() }?.let { sb.append("\n=== last crash ===\n").append(it.readText()) }
+            sb.append("\n=== app log (newest first) ===\n").append(Status.logText()).append('\n')
+            sb.append("\n=== logcat (this app) ===\n")
+            try {
+                val proc = ProcessBuilder("logcat", "-d", "-v", "time", "--pid", android.os.Process.myPid().toString())
+                    .redirectErrorStream(true).start()
+                sb.append(proc.inputStream.bufferedReader().readText().takeLast(400_000))
+            } catch (e: Exception) { sb.append("(logcat unavailable: ").append(e.message).append(")") }
+            val f = File(cacheDir, "carmonitor-log.txt").apply { writeText(sb.toString()) }
+            runOnUiThread { export(f, "carmonitor-log-" + java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.UK).format(java.util.Date()) + ".txt", "text/plain") }
         }.start()
     }
 
@@ -366,6 +409,38 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             toast("Failed: ${e.message}")
         }
+    }
+
+    /** Connect with the current broker settings and publish a test sensor HA can show. */
+    private fun testMqtt() {
+        val host = prefs.brokerHost
+        if (host.isBlank()) { toast("Enter the broker host first"); return }
+        val t = prefs.scheme()
+        toast("Testing $host:${prefs.brokerPort}…")
+        Thread {
+            val msg = try {
+                val m = uk.co.ashunt.carmonitor.core.MiniMqtt(host, prefs.brokerPort, "carmonitor-test-" + Build.MODEL.replace(' ', '-'),
+                    prefs.brokerUser.ifBlank { null }, prefs.brokerPass.ifBlank { null })
+                m.connect(timeoutMs = 6000)
+                val (cfgTopic, cfg) = uk.co.ashunt.carmonitor.core.HaDiscovery.connectionTest(t)
+                m.publish(cfgTopic, cfg, retain = true)
+                Thread.sleep(300)   // let HA create the entity before the first state
+                val now = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.UK).format(java.util.Date())
+                m.publish("${t.base}/test", "OK $now", retain = true)
+                m.close()
+                "Connected to the broker. In HA: device '${t.deviceName}' → 'Connection test' = OK $now"
+            } catch (e: java.net.UnknownHostException) {
+                "Can't resolve '$host'. Is the VPN (Tailscale/NetBird) up?"
+            } catch (e: java.net.SocketTimeoutException) {
+                "Timed out reaching $host:${prefs.brokerPort}: VPN down, wrong IP, or firewall"
+            } catch (e: java.net.ConnectException) {
+                "Connection refused on $host:${prefs.brokerPort}: wrong port, or Mosquitto not running"
+            } catch (e: Exception) {
+                "MQTT test failed: ${e.message}"
+            }
+            Status.log(msg)
+            runOnUiThread { toast(msg) }
+        }.start()
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()

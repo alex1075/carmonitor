@@ -56,7 +56,8 @@ class MiniMqtt(
         val h = i.read(); val len = readLen(i)
         val body = ByteArray(len).also { readFully(i, it) }
         if (h != 0x20 || len != 2) throw IOException("bad CONNACK")
-        if (body[1].toInt() != 0) throw IOException("broker refused connection, rc=${body[1]}")
+        val rc = body[1].toInt()
+        if (rc != 0) throw IOException(REFUSED[rc] ?: "broker refused connection (rc=$rc)")
 
         s.soTimeout = 0
         sock = s; out = o; connected = true
@@ -96,6 +97,17 @@ class MiniMqtt(
         try { synchronized(lock) { out?.write(byteArrayOf(0xE0.toByte(), 0)); out?.flush() } } catch (_: Exception) {}
         try { sock?.close() } catch (_: Exception) {}
         pinger?.interrupt(); sock = null; out = null
+    }
+
+    companion object {
+        /** MQTT 3.1.1 CONNACK return codes, in words a user can act on. */
+        val REFUSED = mapOf(
+            1 to "broker refused: unsupported MQTT protocol version",
+            2 to "broker refused the client id",
+            3 to "broker unavailable",
+            4 to "wrong MQTT username or password",
+            5 to "not authorised: check the MQTT user (in HA: a Home Assistant user, Mosquitto add-on)",
+        )
     }
 
     private fun str(s: String) = bin(s.toByteArray(Charsets.UTF_8))
