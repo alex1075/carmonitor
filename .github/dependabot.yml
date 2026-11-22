@@ -3,6 +3,19 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: gradle
     directory: /
     schedule: { interval: monthly }
+    groups:
+      # Kotlin plugins must share one version
+      kotlin:
+        patterns: ["org.jetbrains.kotlin*"]
+    ignore:
+      # AGP 9 needs Gradle 9 and built-in Kotlin; migrate both together by hand
+      - dependency-name: "com.android.application"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "gradle-wrapper"
+        update-types: ["version-update:semver-major"]
