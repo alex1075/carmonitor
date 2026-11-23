@@ -6,11 +6,12 @@ enum class FuelType(val stoichAfr: Double, val densityGPerL: Double) {
 }
 
 /** How fuel use is being measured (published so HA can show how far to trust it). */
-enum class FuelSource { MEASURED, ESTIMATED_MAF_LAMBDA, ESTIMATED_MAF_O2, FUEL_LEVEL, NONE }
+enum class FuelSource { MEASURED, INJECTION_QUANTITY, ESTIMATED_MAF_LAMBDA, ESTIMATED_MAF_O2, FUEL_LEVEL, NONE }
 
 /**
  * Fuel rate, economy, remaining fuel and range from whatever the car offers, best first:
- *  1. measured fuel rate: J1979 015E (L/h), 019D (g/s), Mazda 22F45E
+ *  1. measured fuel rate: J1979 015E (L/h), 019D (g/s), Mazda 22F45E; or injection quantity
+ *     (mm³/stroke) × cylinders × rpm/2, once a validated quantity PID exists
  *  2. estimate from mass air flow and *standard* J1979 wide-band lambda / O2 % (018C):
  *       λ ≈ 20.9 / (20.9 − O2%),  fuel = MAF / (AFR_stoich × λ). Roughly ±10 % on a diesel.
  *     Values outside physical limits (O2 > 20.95 %, λ outside 0.6–20) are rejected, so a mis-scaled
@@ -24,6 +25,7 @@ class FuelTracker(
     private val tankLitres: Double?,
     /** Long-run average consumption carried between drives (L/100 km), or null if unknown yet. */
     var longRunLPer100: Double?,
+    private val cylinders: Int = 4,
 ) {
     var source = FuelSource.NONE; private set
     var rateLh: Double? = null; private set
@@ -115,6 +117,13 @@ class FuelTracker(
         (v("FUEL_RATE_ALT") ?: v("VFUEL_RATE"))?.takeIf { it in 0.0..50.0 }
             ?.let { source = FuelSource.MEASURED; return it * 3600 / fuel.densityGPerL }
         v("CX5_ENG_FUEL_RATE")?.takeIf { it in 0.0..200.0 }?.let { source = FuelSource.MEASURED; return it }
+        // Injection quantity (mm³ per stroke, per cylinder) × cylinders × injections/min (4-stroke: rpm/2)
+        val q = (v("MZD_INJ_QTY") ?: v("INJ_QTY"))?.takeIf { it in 0.0..150.0 }
+        val rpm = v("RPM")
+        if (q != null && rpm != null) {
+            source = FuelSource.INJECTION_QUANTITY
+            return q * cylinders * rpm / 2 * 60 / 1e6
+        }
         // Prefer MAF-A (0166) when present: on some diesels 0110 looks mis-scaled (seen: 1.4 g/s at idle)
         val maf = (v("MAFA") ?: v("MAF"))?.takeIf { it in 0.0..700.0 }
         if (maf != null) {

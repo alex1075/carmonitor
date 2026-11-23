@@ -16,12 +16,15 @@ data class VehicleProfile(
     val vehicleRepo: String? = null,
     val signalsetFile: String? = null,
     val adapterWarnings: List<String> = emptyList(),
+    val format: String = CURRENT_FORMAT,
 ) {
+    /** Made by an older version that probed fewer commands: re-discover (keeping sweep hits). */
+    val isStale get() = format != CURRENT_FORMAT
     fun supported(key: String) = results[key]?.support == Support.SUPPORTED ||
         sweepHits.any { it.key == key }
 
     fun toJson(): String = MiniJson.write(linkedMapOf(
-        "format" to "carmonitor-profile-1",
+        "format" to format,
         "vin" to vin, "modelYear" to modelYear, "adapter" to adapter, "createdAtMs" to createdAtMs,
         "mode01Supported" to mode01Supported.sorted(),
         "results" to results.values.sortedBy { it.key }.map { r ->
@@ -31,6 +34,8 @@ data class VehicleProfile(
     ), pretty = true)
 
     companion object {
+        /** Bump when discovery probes a wider set of commands. 3 = includes OBDb debug commands. */
+        const val CURRENT_FORMAT = "carmonitor-profile-3"
         fun fromJson(json: String): VehicleProfile {
             val m = MiniJson.obj(json)
             val results = m["results"].asList().map { it.asMap() }.associate { r ->
@@ -46,6 +51,7 @@ data class VehicleProfile(
                     .map { ProbeResult(it["key"].toString(), Support.SUPPORTED, it["raw"] as? String, "sweep") },
                 vehicleRepo = m["vehicleRepo"] as? String, signalsetFile = m["signalsetFile"] as? String,
                 adapterWarnings = m["adapterWarnings"].asList().map { it.toString() },
+                format = m["format"]?.toString() ?: "unknown",
             )
         }
 
@@ -112,7 +118,8 @@ class Discoverer(
         val year = opts.yearOverride ?: VehicleProfile.yearFromVin(vin)
 
         // Pass 2 ---------------------------------------------------------------
-        val cmds = set.forYear(year)
+        // Include OBDb "debug" commands too: probing is read-only and only answering ones get logged.
+        val cmds = set.forYear(year, includeDebug = true)
         val sweepTotal = opts.sweep.sumOf { it.size }
         val total = cmds.size + sweepTotal
         val results = LinkedHashMap<String, ProbeResult>()
@@ -120,6 +127,11 @@ class Discoverer(
         for (c in cmds) {
             if (cancelled()) break
             progress(done++, total, c.key)
+            if (!RequestGuard.isAllowed(c.request)) {
+                // e.g. OBDb debug entries using KWP service 21: never sent, by design
+                results[c.key] = ProbeResult(c.key, Support.UNSUPPORTED, note = "service ${c.service} not allowed (read-only allowlist)")
+                continue
+            }
             if (c.service == "01" && c.hdr == "7E0" && c.pid !in sup01 && sup01.isNotEmpty()) {
                 results[c.key] = ProbeResult(c.key, Support.UNSUPPORTED, note = "not in Mode 01 bitmap")
                 continue

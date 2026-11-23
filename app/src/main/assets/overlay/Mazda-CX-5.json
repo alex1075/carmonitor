@@ -9,7 +9,7 @@
    },
    "freq": 5,
    "validated": false,
-   "note": "Guess from mazda_monitor.py v3 (VALIDATE_ME). Confirm address and scaling against FORScan/Car Scanner, then set validated: true.",
+   "note": "~15000 at idle, +/-5 %. Pair of temperatures/pressures (DPF in/out?), not soot. Watch during a regen.",
    "signals": [
     {
      "id": "MZD_SOOT_GL",
@@ -159,7 +159,7 @@
    },
    "freq": 10,
    "validated": false,
-   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "note": "~15000 at idle, +/-5 %. Pair of temperatures/pressures (DPF in/out?), not soot. Watch during a regen.",
    "signals": [
     {
      "id": "MZD_CAND_042A",
@@ -180,7 +180,7 @@
    },
    "freq": 10,
    "validated": false,
-   "note": "Unidentified candidate from the v3 PM/regen/EGT clusters.",
+   "note": "Steady 77-78 at idle (2026-11-23). Soot-load candidate: should creep up over a drive and drop after a regen.",
    "signals": [
     {
      "id": "MZD_CAND_042C",
@@ -314,6 +314,309 @@
      "path": "Diesel",
      "fmt": {
       "len": 16,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "044B"
+   },
+   "freq": 1,
+   "validated": false,
+   "note": "Sweep hit 2026-11-23: 0x3D at idle = 6.1 mm3/stroke if /10, i.e. 0.58 L/h at 800 rpm. Confirm it rises with load and is ~0 on overrun.",
+   "signals": [
+    {
+     "id": "MZD_INJ_QTY",
+     "name": "Injection quantity - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "len": 16,
+      "div": 10,
+      "min": 0,
+      "max": 150,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "03F6"
+   },
+   "freq": 5,
+   "validated": false,
+   "note": "Sweep hit: 29*5 = 145 C at idle, consistent with J1979 EGT bank 1 sensors.",
+   "signals": [
+    {
+     "id": "MZD_EGT_3",
+     "name": "Exhaust gas temperature 3 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "len": 8,
+      "mul": 5,
+      "max": 1275,
+      "unit": "celsius"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0436"
+   },
+   "freq": 30,
+   "validated": false,
+   "note": "Sweep hit: 4 bytes each centred on ~128; hypothesis per-cylinder injector correction (cyl 1-4).",
+   "signals": [
+    {
+     "id": "MZD_INJ_CORR_0436_C1",
+     "name": "Injector correction 0436 cyl 1 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 0,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0436_C2",
+     "name": "Injector correction 0436 cyl 2 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 8,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0436_C3",
+     "name": "Injector correction 0436 cyl 3 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 16,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0436_C4",
+     "name": "Injector correction 0436 cyl 4 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 24,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0437"
+   },
+   "freq": 30,
+   "validated": false,
+   "note": "Sweep hit: 4 bytes each centred on ~128; hypothesis per-cylinder injector correction (cyl 1-4).",
+   "signals": [
+    {
+     "id": "MZD_INJ_CORR_0437_C1",
+     "name": "Injector correction 0437 cyl 1 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 0,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0437_C2",
+     "name": "Injector correction 0437 cyl 2 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 8,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0437_C3",
+     "name": "Injector correction 0437 cyl 3 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 16,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0437_C4",
+     "name": "Injector correction 0437 cyl 4 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 24,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0438"
+   },
+   "freq": 30,
+   "validated": false,
+   "note": "Sweep hit: 4 bytes each centred on ~128; hypothesis per-cylinder injector correction (cyl 1-4).",
+   "signals": [
+    {
+     "id": "MZD_INJ_CORR_0438_C1",
+     "name": "Injector correction 0438 cyl 1 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 0,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0438_C2",
+     "name": "Injector correction 0438 cyl 2 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 8,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0438_C3",
+     "name": "Injector correction 0438 cyl 3 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 16,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0438_C4",
+     "name": "Injector correction 0438 cyl 4 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 24,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    }
+   ]
+  },
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "22": "0439"
+   },
+   "freq": 30,
+   "validated": false,
+   "note": "Sweep hit: 4 bytes each centred on ~128; hypothesis per-cylinder injector correction (cyl 1-4).",
+   "signals": [
+    {
+     "id": "MZD_INJ_CORR_0439_C1",
+     "name": "Injector correction 0439 cyl 1 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 0,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0439_C2",
+     "name": "Injector correction 0439 cyl 2 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 8,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0439_C3",
+     "name": "Injector correction 0439 cyl 3 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 16,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
+      "unit": "scalar"
+     }
+    },
+    {
+     "id": "MZD_INJ_CORR_0439_C4",
+     "name": "Injector correction 0439 cyl 4 - candidate",
+     "path": "Diesel",
+     "fmt": {
+      "bix": 24,
+      "len": 8,
+      "add": -128,
+      "min": -128,
+      "max": 127,
       "unit": "scalar"
      }
     }
