@@ -1,6 +1,10 @@
 # Changelog
 
 ## [0.5.1] - 2026-11-23
+### Added
+- **Car Bluetooth disconnect ends the session**: when the head unit / CMU disconnects (10 s grace), the trip is closed and
+  the dongle released. With a car Bluetooth device set, the app then *parks* (no re-dialling) until the car connects again,
+  which saves the phone's and the car's battery.
 ### Fixed
 - Auto-connect could miss rides: a session that had stopped hearing from the ECU never released the dongle, so the next
   car-Bluetooth trigger was ignored. Now: no ECU reply for 60 s releases the dongle and returns to waiting, a trigger
