@@ -127,6 +127,11 @@ class ObdService : Service() {
                     val lib = prefs.library()
                     var profile = prefs.profile()
                     val want = discoverRequested
+                    // A profile with nothing supported (e.g. saved while the ECU was asleep) would poll
+                    // nothing forever: treat it as missing and discover again.
+                    if (profile != null && profile.results.values.none { it.support.name == "SUPPORTED" }) {
+                        Status.log("saved profile has no supported signals, re-discovering"); profile = null
+                    }
                     if (want != null || profile == null) {
                         discoverRequested = null
                         val sweep = if (want == true) prefs.sweepRanges() else emptyList()
@@ -135,9 +140,15 @@ class ObdService : Service() {
                             vehicleRepo = prefs.vehicleRepo.ifBlank { null }, signalsetFile = prefs.signalsetFile),
                             progress = { d, t, l -> Status.detail = "$d / $t  $l"; if (d % 25 == 0) updateNote("Discovering $d/$t") },
                             cancelled = { !running }).run()
-                        prefs.profileFile.writeText(profile.toJson())
                         val n = profile.results.values.count { it.support.name == "SUPPORTED" }
                         Status.log("discovery: $n supported, ${profile.sweepHits.size} sweep hits, VIN ${profile.vin}")
+                        if (n == 0) {
+                            // ECU silent (ignition off / engine module asleep): don't save, wait and retry.
+                            setState("car not answering", "ignition on? retrying in 30 s")
+                            Status.log("no ECU replies; profile NOT saved; retrying")
+                            sleep(30_000); continue
+                        }
+                        prefs.profileFile.writeText(profile.toJson())
                     }
                     val csvFile = File(prefs.logDir, "drive-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date()) + ".csv")
                     csvFile.bufferedWriter().use { w ->

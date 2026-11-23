@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.1] - 2026-11-23
+### Fixed
+- Logger could sit at "polling 0 commands" forever after a discovery that ran while the ECU was asleep. Empty profiles are no longer saved, and a saved profile with no supported signals triggers re-discovery.
+- The dongle's own connection no longer logs a spurious "car Bluetooth connected" event while logging.
+
 ## [0.3.0] - 2026-11-23
 ### Added
 - **Home Assistant API mode**: log in with a long-lived access token instead of a broker username/password. Publishes via
