@@ -1,9 +1,12 @@
 # Changelog
 
-## [0.5.1] - 2026-11-23
+## [0.5.2] - 2026-11-23
 ### Changed
 - No vehicle-specific fuel defaults: tank size is a setting for every car (OBDb carries signals, not specs), and
   diesel/petrol is detected from the car (J1979 0151) with the tick-box only as an override.
+  **Upgrading:** re-enter your tank size (e.g. CX-5: 56 L 2WD, 58 L AWD).
+
+## [0.5.1] - 2026-11-23
 ### Added
 - **Car Bluetooth disconnect ends the session**: when the head unit / CMU disconnects (10 s grace), the trip is closed and
   the dongle released. With a car Bluetooth device set, the app then *parks* (no re-dialling) until the car connects again,
