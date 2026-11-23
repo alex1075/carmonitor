@@ -78,6 +78,8 @@ class LoggerEngine(
     private var tripRegen = false
     private var tripMaxSoot: Double? = null
     private var lastGoodReply = now()
+    /** Time of the last positive ECU reply; the service uses it to release a dead or silent link. */
+    val lastGoodReplyMs get() = lastGoodReply
     private var lastDtc = 0L
     var regenActive = false; private set
     val fuel = FuelTracker(cfg.fuelType, cfg.tankLitres, cfg.longRunLPer100, cfg.cylinders).also { f -> cfg.fuelState?.let { f.restore(it) } }
@@ -112,6 +114,8 @@ class LoggerEngine(
     }
 
     fun run(stop: () -> Boolean) {
+        // A session that polls nothing can never notice the car going away: refuse to run it.
+        if (polled.isEmpty()) throw IOException("no supported signals to poll")
         announce()
         try {
             while (!stop()) step()

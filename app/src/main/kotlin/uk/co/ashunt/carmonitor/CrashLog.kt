@@ -29,5 +29,6 @@ class CarMonitorApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        Status.logFile = java.io.File(filesDir, "app-log.txt")   // receivers log here even before the service runs
     }
 }

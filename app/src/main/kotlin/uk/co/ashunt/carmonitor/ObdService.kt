@@ -28,14 +28,23 @@ import java.util.Locale
 
 /** Shared, UI-readable state. The activity polls this once a second. */
 object Status {
+    /** Persistent copy of the log (survives app restarts), set by the service/activity. */
+    @Volatile var logFile: java.io.File? = null
     @Volatile var state = "stopped"
     @Volatile var detail = ""
     @Volatile var mqtt = false
     @Volatile var live: Map<String, String> = emptyMap()
     private val logLines = ArrayDeque<String>()
     fun log(s: String) = synchronized(logLines) {
-        logLines.addLast(SimpleDateFormat("HH:mm:ss", Locale.UK).format(Date()) + " " + s)
+        val line = SimpleDateFormat("HH:mm:ss", Locale.UK).format(Date()) + " " + s
+        logLines.addLast(line)
         while (logLines.size > 200) logLines.removeFirst()
+        logFile?.let { f ->
+            try {
+                if (f.length() > 512_000) f.renameTo(java.io.File(f.parentFile, "app-log.1.txt"))
+                f.appendText(SimpleDateFormat("yyyy-MM-dd ", Locale.UK).format(Date()) + line + "\n")
+            } catch (_: Exception) {}
+        }
     }
     fun logText(): String = synchronized(logLines) { logLines.reversed().joinToString("\n") }
 }
@@ -66,6 +75,11 @@ class ObdService : Service() {
     private var wake: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        Status.logFile = File(filesDir, "app-log.txt")
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -176,11 +190,20 @@ class ObdService : Service() {
                                 w.flush()
                             }
                             if (t - lastFuelSave > 60_000) { lastFuelSave = t; prefs.fuelState = engine.fuel.state() }
-                            !running || discoverRequested != null
+                            // Watchdog: no ECU reply for 60 s = car off or link silently dead. Release the
+                            // dongle and go back to waiting, so the next ignition/CMU trigger dials afresh.
+                            val silentMs = t - engine.lastGoodReplyMs
+                            if (silentMs > 60_000) Status.log("no ECU replies for ${silentMs / 1000} s, releasing the dongle")
+                            // A car-Bluetooth trigger while the ECU is silent also forces a fresh connection
+                            if (pokedFlag && silentMs > 5_000) Status.log("car Bluetooth connected during a silent session, reconnecting")
+                            val restart = silentMs > 60_000 || (pokedFlag && silentMs > 5_000)
+                            pokedFlag = false
+                            !running || discoverRequested != null || restart
                         }) } finally { prefs.fuelState = engine.fuel.state() }
                     }
                 } catch (e: IOException) {
                     Status.log("link lost: ${e.message}")
+                    if (e.message?.startsWith("no supported signals") == true) { prefs.profileFile.delete(); sleep(5000) }
                 } catch (e: InterruptedException) {
                     break
                 } catch (e: Exception) {
@@ -212,7 +235,8 @@ class ObdService : Service() {
             poked = false
         }
     }
-    private fun poke() = synchronized(pokeLock) { poked = true; pokeLock.notifyAll() }
+    @Volatile private var pokedFlag = false
+    private fun poke() = synchronized(pokeLock) { poked = true; pokedFlag = true; pokeLock.notifyAll() }
 
     private fun acquireWake() {
         if (wake?.isHeld == true) return
