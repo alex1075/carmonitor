@@ -399,6 +399,12 @@ object SelfTest {
         eq(eng.pollCount, 3, "RPM + overlay 044B + sweep 0594 polled")
     }
 
+    fun fuelType() {
+        eq(FuelTypes.fromJ1979("DSL"), FuelType.DIESEL, "0151 DSL = diesel (real CX-5)")
+        eq(FuelTypes.fromJ1979("GAS"), FuelType.PETROL, "0151 GAS = petrol")
+        eq(FuelTypes.fromJ1979("ELEC"), null, "electric -> unknown")
+    }
+
     fun json() {
         val s = """{"a":[1,2.5,-3e2,"x\"yé"],"b":{"c":null,"d":true}}"""
         val o = MiniJson.obj(s)
@@ -420,6 +426,7 @@ object SelfTest {
         haRest()
         fuel(lib, prof)
         realCar(lib)
+        fuelType()
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,

@@ -21,7 +21,8 @@ enum class FuelSource { MEASURED, INJECTION_QUANTITY, ESTIMATED_MAF_LAMBDA, ESTI
  * Remaining = cluster litres if reported, else smoothed level % × tank size.
  */
 class FuelTracker(
-    private val fuel: FuelType,
+    /** Settable: the engine switches it once the car reports its fuel type (J1979 0151). */
+    var fuel: FuelType,
     private val tankLitres: Double?,
     /** Long-run average consumption carried between drives (L/100 km), or null if unknown yet. */
     var longRunLPer100: Double?,
@@ -169,5 +170,17 @@ class FuelTracker(
         const val L_PER_UK_GAL = 4.54609
         /** UK mpg from L/100 km (282.48 / L/100km). */
         fun mpgUk(lPer100: Double) = 100 / lPer100 * L_PER_UK_GAL / 1.609344
+    }
+}
+
+object FuelTypes {
+    /** Map J1979 PID 0151 (as decoded by OBDb, e.g. "DSL", "GAS", "Diesel") to a [FuelType]; null if unknown/other. */
+    fun fromJ1979(v: String): FuelType? {
+        val u = v.uppercase()
+        return when {
+            "DSL" in u || "DIESEL" in u -> FuelType.DIESEL
+            u == "GAS" || "GASOLINE" in u || "PETROL" in u || u.startsWith("BI_GAS") -> FuelType.PETROL
+            else -> null
+        }
     }
 }

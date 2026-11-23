@@ -17,7 +17,9 @@ data class LoggerConfig(
     val engineOffTimeoutMs: Long = 30_000,
     val regenEgtC: Double = 450.0,
     val regenSootDropGl: Double = 1.0,
-    val fuelType: FuelType = FuelType.DIESEL,
+    /** Fallback/override; the car's own fuel-type report (0151) wins unless [forceFuelType]. */
+    val fuelType: FuelType = FuelType.PETROL,
+    val forceFuelType: Boolean = false,
     val tankLitres: Double? = null,
     val longRunLPer100: Double? = null,
     /** FuelTracker.state() from the previous drive (fill-to-fill baseline etc.). */
@@ -226,6 +228,7 @@ class LoggerEngine(
 
     private fun publishFuel(t: Long) {
         val f = Locale.ROOT
+        if (!cfg.forceFuelType) (values["FUEL_TYP"]?.first as? Decoded.Text)?.v?.let { FuelTypes.fromJ1979(it) }?.let { fuel.fuel = it }
         fuel.observeLevel(fuelVal)
         fuel.remainingLitres(fuelVal)?.let { pub(topics.fuelRemaining, "%.1f".format(f, it), true) }
         fuel.rangeKm(fuelVal)?.let { pub(topics.fuelRange, "%.0f".format(f, it), true) }
