@@ -1,6 +1,7 @@
 package uk.co.ashunt.carmonitor.core
 
 import java.io.IOException
+import java.util.Locale
 
 data class LoggerConfig(
     val publishDefaults: Boolean = true,        // DefaultSignals (core J1979 + OBDb suggestedMetric) get HA sensors
@@ -16,6 +17,11 @@ data class LoggerConfig(
     val engineOffTimeoutMs: Long = 30_000,
     val regenEgtC: Double = 450.0,
     val regenSootDropGl: Double = 1.0,
+    val fuelType: FuelType = FuelType.DIESEL,
+    val tankLitres: Double? = null,
+    val longRunLPer100: Double? = null,
+    /** FuelTracker.state() from the previous drive (fill-to-fill baseline etc.). */
+    val fuelState: Map<String, Any?>? = null,
 )
 
 /** Rows for the per-drive CSV: ts_ms, key, signal, value, raw. */
@@ -52,12 +58,15 @@ class LoggerEngine(
     private var lastGoodReply = now()
     private var lastDtc = 0L
     var regenActive = false; private set
+    val fuel = FuelTracker(cfg.fuelType, cfg.tankLitres, cfg.longRunLPer100).also { f -> cfg.fuelState?.let { f.restore(it) } }
+    private val fuelVal: (String) -> Double? = { id -> if (isValidatedSignal(id)) num(id) else null }
 
     val pollCount get() = polled.size
 
     private val polledSignalIds: Set<String> = polled.flatMap { it.signals }.map { it.id }.toSet()
     /** Only diesels with something DPF-ish get regen entities. */
     private val hasDpf: Boolean = polledSignalIds.any { it.startsWith("DPF") || it.startsWith("PF_REGEN") || it.startsWith("MZD_") }
+    private val hasFuel: Boolean = polledSignalIds.any { it in FUEL_INPUTS }
 
     private fun wantsSensor(s: Signal): Boolean {
         if (s.hidden || s.id.endsWith("_SUP") || s.id in topics.legacySources) return false
@@ -68,6 +77,8 @@ class LoggerEngine(
         sink.publish(topics.status, "online", true)
         for ((t, p) in HaDiscovery.engineEntities(topics)) sink.publish(t, p, true)
         if (hasDpf) HaDiscovery.regenActive(topics).let { sink.publish(it.first, it.second, true) }
+        if (hasFuel) for ((t, p) in HaDiscovery.fuelEntities(topics)) sink.publish(t, p, true)
+        fuel.longRunLPer100?.let { pub(topics.avgEconomy, "%.1f".format(java.util.Locale.ROOT, it), true, force = true) }
         for (c in polled) {
             if (!c.validated) {
                 if (cfg.publishCandidates) HaDiscovery.forRaw(topics, c.key).let { sink.publish(it.first, it.second, true) }
@@ -124,6 +135,7 @@ class LoggerEngine(
         }
         if (c.validated) publishLegacy(c)
         updateTrip(t)
+        if (hasFuel) publishFuel(t)
     }
 
     private fun num(id: String): Double? = (values[id]?.first as? Decoded.Num)?.v
@@ -186,8 +198,30 @@ class LoggerEngine(
         }
     }
 
+    private fun publishFuel(t: Long) {
+        val f = Locale.ROOT
+        fuel.observeLevel(fuelVal)
+        fuel.remainingLitres(fuelVal)?.let { pub(topics.fuelRemaining, "%.1f".format(f, it), true) }
+        fuel.rangeKm(fuelVal)?.let { pub(topics.fuelRange, "%.0f".format(f, it), true) }
+        if (!tripActive) return
+        fuel.update(t, fuelVal, fuelVal("VSS"))
+        fuel.rateLh?.let { pub(topics.fuelRate, "%.2f".format(f, it), false) }
+        val inst = fuel.instantLPer100
+        if (inst != null && inst < 99) {
+            pub(topics.fuelEconomy, "%.1f".format(f, inst), false)
+            if (inst > 0.5) pub(topics.fuelEconomyMpg, "%.1f".format(f, FuelTracker.mpgUk(inst)), false)
+        }
+        pub(topics.fuelSource, fuel.source.name.lowercase(), true)
+        pub(topics.tripFuel, "%.2f".format(f, fuel.tripLitres), true)
+        fuel.tripLPer100?.let {
+            pub(topics.tripEconomy, "%.1f".format(f, it), true)
+            if (it > 0.5) pub(topics.tripEconomyMpg, "%.1f".format(f, FuelTracker.mpgUk(it)), true)
+        }
+    }
+
     private fun startTrip(t: Long) {
         tripActive = true; tripKm = 0.0; lastSpeedTs = null; tripRegen = false; tripMaxSoot = null
+        fuel.startTrip()
         log("trip START")
         pub(topics.tripActive, "on", true, force = true)
         readDtcs(); lastDtc = t
@@ -201,6 +235,12 @@ class LoggerEngine(
         pub(topics.lastTripDist, "%.1f".format(java.util.Locale.ROOT, tripKm * topics.distFactor), true, force = true)
         if (hasDpf) pub(topics.lastTripRegen, if (tripRegen) "yes" else "no", true, force = true)
         if (regenActive) { regenActive = false; pub(topics.regenActive, "off", true, force = true) }
+        if (hasFuel) {
+            fuel.tripLPer100?.let { pub(topics.tripEconomy, "%.1f".format(Locale.ROOT, it), true, force = true) }
+            pub(topics.tripFuel, "%.2f".format(Locale.ROOT, fuel.tripLitres), true, force = true)
+            fuel.endTrip()
+            fuel.longRunLPer100?.let { pub(topics.avgEconomy, "%.1f".format(Locale.ROOT, it), true, force = true) }
+        }
     }
 
     private fun readDtcs() {
@@ -229,6 +269,8 @@ class LoggerEngine(
         if (v == Math.rint(v) && kotlin.math.abs(v) < 1e12) v.toLong().toString()
         else "%.3f".format(java.util.Locale.ROOT, v).trimEnd('0').trimEnd('.')
 }
+
+private val FUEL_INPUTS = setOf("FUEL_RATE", "FUEL_RATE_ALT", "VFUEL_RATE", "CX5_ENG_FUEL_RATE", "MAF", "MAFA", "FLI", "CX5_FLI", "CX5_FLV")
 
 private val POST_DPF_EGT = listOf("MZD_EGT_POST_DPF", "DPF1_OUTT", "CX5_EXH_GAS_T_2")
 

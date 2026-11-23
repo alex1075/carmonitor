@@ -10,6 +10,8 @@ class FakeCx5 : ElmLink {
     var rpm = 0.0
     var speed = 0.0
     var egtPostDpf = 300.0
+    var maf = 7.0
+    var o2 = 17.5
     var alive = true
     val sent = mutableListOf<String>()
     private var hdr = "7E0"
@@ -19,10 +21,13 @@ class FakeCx5 : ElmLink {
     /** request -> positive payload (without the echo) */
     private fun positive(req: String): List<Int>? = when (req) {
         "0100" -> listOf(0x98, 0x3B, 0x80, 0x13)        // 01,04,05,0B,0C,0D,0F,10,11,1C,20 supported
-        "0120" -> listOf(0x80, 0x01, 0x00, 0x01)        // 21, 30(no), 2F? -> keep simple, 40 supported
+        "0120" -> listOf(0x80, 0x03, 0x00, 0x01)        // 21, 2F (fuel level), 30, 40
         "0140" -> listOf(0x40, 0x00, 0x00, 0x00)        // 42 (VPWR)
         "010C" -> (rpm * 4).toInt().let { listOf(it shr 8, it and 0xFF) }
         "010D" -> listOf(speed.toInt())
+        "0110" -> (maf * 100).toInt().let { listOf(it shr 8, it and 0xFF) }   // MAF g/s ×100
+        "012F" -> listOf(94)                                                // 36.9 %
+        "220451" -> (o2 * 100).toInt().let { listOf(it shr 8, it and 0xFF) } // CX5_OXY %, checked below
         "0105" -> listOf(90 + 40)
         "0142" -> listOf(0x36, 0xB0)                    // 14.0 V
         "0902" -> listOf(0x01) + "JMZXXXXXX00123456".map { it.code }
@@ -306,6 +311,68 @@ object SelfTest {
         sink.close()
     }
 
+
+    fun fuel(lib: SignalSet, prof: VehicleProfile) {
+        // unit: MAF + standard O2 % estimate on a diesel
+        val ft = FuelTracker(FuelType.DIESEL, 56.0, null)
+        var vals = mapOf("MAFA" to 7.0, "O2S11_PCT" to 17.5)
+        ft.startTrip(); ft.update(0, { vals[it] }, 0.0)
+        check(ft.rateLh!! in 0.25..0.45 && ft.source == FuelSource.ESTIMATED_MAF_O2, "idle diesel ≈0.34 L/h: ${ft.rateLh}")
+        eq(ft.instantLPer100, null, "no L/100km when stationary")
+        vals = mapOf("MAFA" to 30.0, "O2S11_PCT" to 12.0)
+        var t = 0L
+        repeat(3600) { t += 1000; ft.update(t, { vals[it] }, 90.0) }   // 1 h at 90 km/h
+        check(ft.rateLh!! in 3.5..4.2, "cruise ≈3.8 L/h: ${ft.rateLh}")
+        check(ft.tripLPer100!! in 3.9..4.6 && kotlin.math.abs(ft.tripLitres - ft.rateLh!!) < 0.05, "trip integration: ${ft.tripLPer100} / ${ft.tripLitres}")
+        check(kotlin.math.abs(FuelTracker.mpgUk(5.0) - 56.5) < 0.1, "5 L/100km = 56.5 mpg UK")
+        ft.endTrip(); check(ft.longRunLPer100 != null, "long-run average seeded from rate")
+        eq(FuelTracker(FuelType.DIESEL, 56.0, null).also { it.update(0, { k -> if (k == "FUEL_RATE") 2.0 else null }, 50.0) }.source, FuelSource.MEASURED, "measured rate preferred")
+        val overrun = FuelTracker(FuelType.DIESEL, 56.0, null).also { it.update(0, { k -> mapOf("MAFA" to 20.0, "O2S11_PCT" to 20.7)[k] }, 80.0) }
+        eq(overrun.rateLh, 0.0, "overrun fuel cut ≈ 0")
+        val bogus = FuelTracker(FuelType.DIESEL, 56.0, null).also { it.update(0, { k -> mapOf("MAFA" to 6.0, "O2S11_PCT" to 60.0, "CX5_OXY" to 60.0)[k] }, 0.0) }
+        eq(bogus.rateLh, null, "impossible O2 (60 %) rejected, as seen on the real CX-5")
+
+        // unit: fuel-level mode with fill-to-fill and a refuel between drives
+        val lv = FuelTracker(FuelType.DIESEL, 56.0, null)
+        var pct = 50.0; var ts = 0L
+        fun tick(speed: Double) { ts += 1000; lv.observeLevel { k -> if (k == "FLI") pct else null }; lv.update(ts, { k -> if (k == "FLI") pct else null }, speed) }
+        repeat(20) { tick(0.0) }
+        lv.startTrip()
+        eq(lv.remainingLitres { null }, 28.0, "smoothed remaining 50% of 56 L")
+        // 100 km at 100 km/h, burning 6 L (≈10.7 %)
+        repeat(3600) { i -> pct = 50.0 - 6.0 / 56.0 * 100 * (i + 1) / 3600; tick(100.0) }
+        eq(lv.source, FuelSource.FUEL_LEVEL, "falls back to fuel level")
+        check(kotlin.math.abs(lv.tripLitres - 6.0) < 0.3, "trip litres from level ≈6: ${lv.tripLitres}")
+        check(lv.fillToFillLPer100!! in 5.5..6.5, "fill-to-fill ≈6 L/100km: ${lv.fillToFillLPer100}")
+        lv.endTrip(); check(lv.longRunLPer100!! in 5.5..6.5, "long-run from fill-to-fill")
+        val saved = lv.state()
+        val next = FuelTracker(FuelType.DIESEL, 56.0, null).also { it.restore(saved) }
+        pct = 95.0                                             // refuelled while parked
+        repeat(15) { ts += 1000; next.observeLevel { k -> if (k == "FLI") pct else null } }
+        check(next.baselineL!! > 50 && next.kmSinceBaseline == 0.0, "refuel between drives resets fill-to-fill: ${next.baselineL}")
+        eq(next.longRunLPer100, lv.longRunLPer100, "long-run average survives the refuel")
+
+        // integration: engine publishes fuel topics on a generic scheme (fake CX-5: no usable O2)
+        val fake = FakeCx5()
+        val elm = Elm327(fake).also { it.init() }
+        val out = mutableListOf<Triple<String, String, Boolean>>()
+        var now = 9_000_000L
+        val T = TopicScheme.forVehicle(VehicleRef("Mazda-CX-5", "Mazda", "CX 5"))
+        val prof2 = Discoverer(elm, lib, DiscoverOptions(yearOverride = 2017, delayMs = 0), sleep = {}).run()
+        val eng = LoggerEngine(elm, lib, prof2, { a, b, c -> out += Triple(a, b, c) }, T,
+            LoggerConfig(minGapMs = 0, publishMinIntervalMs = 0, tankLitres = 56.0, longRunLPer100 = 6.0), now = { now }, sleep = { now += it })
+        eng.announce()
+        check(out.any { it.first.endsWith("_fuel_range/config") }, "fuel entities announced")
+        check(out.any { it.first == T.avgEconomy && it.second == "6.0" }, "long-run average published at start")
+        fake.rpm = 1500.0; fake.speed = 90.0; fake.maf = 30.0; fake.o2 = 12.0
+        repeat(600) { eng.step(); now += 100 }
+        check(eng.tripActive, "fuel trip active")
+        check(out.any { it.first == T.fuelRemaining && it.second == "20.6" }, "remaining 36.9% of 56 L = 20.6: " + out.lastOrNull { it.first == T.fuelRemaining })
+        check(out.any { it.first == T.fuelRange && it.second == "344" }, "range 20.6 L / 6.0 L/100km = 344 km: " + out.lastOrNull { it.first == T.fuelRange })
+        check(out.any { it.first == T.fuelSource && it.second == "fuel_level" }, "CX-5 without usable O2 -> fuel_level source")
+        check(out.none { it.first == T.fuelRate }, "no fake fuel rate published")
+    }
+
     fun json() {
         val s = """{"a":[1,2.5,-3e2,"x\"yé"],"b":{"c":null,"d":true}}"""
         val o = MiniJson.obj(s)
@@ -325,6 +392,7 @@ object SelfTest {
         genericLogger(lib, prof)
         catalog()
         haRest()
+        fuel(lib, prof)
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,
