@@ -1,5 +1,10 @@
 # Home Assistant
 
+## Connection modes
+- **MQTT broker:** direct to Mosquitto, with a last-will so `logger/status` turns `offline` if the phone vanishes.
+- **HA API token:** HA's `mqtt.publish` service over HTTPS. Same topics and entities, coalesced every 3 s. There's no last-will:
+  `offline` is published on a clean stop, and live sensors expire via `expire_after` otherwise.
+
 ## Topics (generic layout)
 With base `car/<slug>`:
 

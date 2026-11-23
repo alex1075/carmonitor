@@ -40,10 +40,18 @@ Discovery also saves them in the profile.
 3. **Vehicle → Choose vehicle…** and search (for example `RAV4`, `Golf`, `CX-5`). The make is pre-filled from the VIN once discovery
    has run. Set the **model year** first: it selects the OBDb year file, and EU/JDM VINs carry no year code. If OBDb doesn't have your car,
    use **Generic OBD-II only**.
-4. Set the MQTT broker (HA's Mosquitto add-on, ideally reached over Tailscale/NetBird rather than an open port), a user and a password.
+4. **Connection settings…** offers two ways to reach Home Assistant. Then tap **Test HA connection**; a *Connection test* sensor should appear on the car's HA device.
+   - **MQTT broker:** HA's Mosquitto add-on, ideally over Tailscale/NetBird rather than an open port, with a username and password.
+   - **Home Assistant API:** your HA URL plus a **long-lived access token** (HA → Profile → Security). The app publishes through HA's
+     `mqtt.publish` service, so you only need HTTPS to HA: no broker port and no VPN. Updates are batched every 3 s.
+
+   The password and token are masked on screen and stored encrypted with the Android Keystore.
 5. Engine on → **Discover**. Logging starts when discovery finishes. **Discover + sweep** also scans Mode 22 DID
    ranges you choose (Settings), which helps find manufacturer values that OBDb doesn't document yet.
-6. Turn off battery optimisation for the app. The service waits between drives and reconnects when the dongle wakes.
+6. **Autostart:** under *Choose car Bluetooth…*, tick the car's own Bluetooth (for example the Mazda CMU). When it connects to the
+   phone at ignition, CarMonitor starts and dials the OBD dongle. Tap **Allow background start…** once (Android's companion-device
+   dialog) so this works with the app closed. Without it you get a tap-to-start notification instead.
+7. Turn off battery optimisation for the app. Between drives the service also retries the dongle every 20 s.
 
 ## Home Assistant
 

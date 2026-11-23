@@ -14,5 +14,8 @@ Please **don't open a public issue**. Use GitHub's private reporting:
 Only the latest release receives fixes.
 
 ## Notes for users
+- The MQTT password and HA token are stored encrypted (AES-256-GCM, key held in the Android Keystore), and the app disables
+  backups. Anyone with your unlocked phone and debugging access is still out of scope.
+- Use **https** for the HA URL. Over plain http the token is sent in clear.
 - Reach your MQTT broker over a VPN (Tailscale/NetBird/WireGuard). Don't expose port 1883 to the internet.
 - The MQTT link is plain TCP, so the VPN provides the encryption.

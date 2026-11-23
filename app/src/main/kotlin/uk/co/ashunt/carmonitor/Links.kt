@@ -6,7 +6,8 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import uk.co.ashunt.carmonitor.core.ElmLink
 import uk.co.ashunt.carmonitor.core.MiniMqtt
-import uk.co.ashunt.carmonitor.core.Sink
+import uk.co.ashunt.carmonitor.core.HaRestSink
+import uk.co.ashunt.carmonitor.core.Uplink
 import uk.co.ashunt.carmonitor.core.StreamLink
 import java.io.IOException
 import java.util.UUID
@@ -56,11 +57,12 @@ class ReconnectingMqtt(
     private val user: String?, private val pass: String?,
     private val willTopic: String,
     private val log: (String) -> Unit,
-) : Sink {
+) : Uplink {
     private var client: MiniMqtt? = null
     private var lastAttempt = 0L
     private val retained = LinkedHashMap<String, String>()
-    val connected get() = client?.connected == true
+    override val connected get() = client?.connected == true
+    @Volatile override var lastError: String? = null; private set
 
     @Synchronized
     override fun publish(topic: String, payload: String, retain: Boolean) {
@@ -87,11 +89,18 @@ class ReconnectingMqtt(
             for ((t, p) in retained) c.publish(t, p, true)
             true
         } catch (e: Exception) {
+            lastError = e.message
             log("mqtt connect failed: ${e.message}")
             false
         }
     }
 
     @Synchronized
-    fun close() { client?.close(); client = null }
+    override fun close() { client?.close(); client = null }
+}
+
+/** Build the uplink chosen in settings. */
+fun Prefs.uplink(statusTopic: String, log: (String) -> Unit): Uplink = when (connMode) {
+    "ha" -> HaRestSink(haUrl, haToken, log = log)
+    else -> ReconnectingMqtt(brokerHost, brokerPort, brokerUser, brokerPass, statusTopic, log)
 }

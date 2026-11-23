@@ -70,6 +70,7 @@ class ObdService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             running = false
+            poke()
             worker?.interrupt()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -79,6 +80,7 @@ class ObdService : Service() {
         createChannel()
         startForeground(NOTE_ID, note("Waiting for the car…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         if (intent?.action == ACTION_DISCOVER) discoverRequested = intent.getBooleanExtra(EXTRA_SWEEP, false)
+        if (intent?.action == ACTION_LOG) poke()   // e.g. car Bluetooth just connected: dial the dongle now
         if (worker?.isAlive != true) {
             running = true
             worker = Thread({ loop() }, "obd-worker").apply { start() }
@@ -100,9 +102,7 @@ class ObdService : Service() {
     private fun loopInner() {
         val prefs = Prefs(this)
         val scheme = prefs.scheme()
-        val mqtt = ReconnectingMqtt(prefs.brokerHost, prefs.brokerPort, prefs.brokerUser, prefs.brokerPass, scheme.status) {
-            Status.log(it)
-        }
+        val mqtt = prefs.uplink(scheme.status) { Status.log(it) }
         try {
             while (running) {
                 val addr = prefs.deviceAddress
@@ -185,7 +185,16 @@ class ObdService : Service() {
     }
 
     private fun setState(s: String, d: String) { Status.state = s; Status.detail = d }
-    private fun sleep(ms: Long) { try { Thread.sleep(ms) } catch (_: InterruptedException) { running = false } }
+    private val pokeLock = Object()
+    @Volatile private var poked = false
+    /** Wait up to [ms], returning early if poked (car Bluetooth connected) or stopped. */
+    private fun sleep(ms: Long) {
+        synchronized(pokeLock) {
+            if (!poked && running) try { pokeLock.wait(ms) } catch (_: InterruptedException) { running = false }
+            poked = false
+        }
+    }
+    private fun poke() = synchronized(pokeLock) { poked = true; pokeLock.notifyAll() }
 
     private fun acquireWake() {
         if (wake?.isHeld == true) return
