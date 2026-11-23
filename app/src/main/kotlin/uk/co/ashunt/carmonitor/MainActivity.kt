@@ -116,9 +116,9 @@ class MainActivity : Activity() {
             button("Choose vehicle…") { save(); chooseVehicle() },
             button("Generic OBD-II only") { prefs.selectVehicle(null, "default.json"); refreshVehicle(); toast("Generic J1979 PIDs only. Run Discover.") },
         ))
-        col.addView(label("Fuel: tank size in litres (CX-5: 56 L 2WD, 58 L AWD)"))
+        col.addView(label("Fuel tank size in litres (from the handbook; needed for remaining fuel and range)"))
         tank = edit(if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else "", "e.g. 56", InputType.TYPE_CLASS_NUMBER); col.addView(tank)
-        dieselBox = CheckBox(this).apply { text = "Diesel engine"; isChecked = prefs.diesel }; col.addView(dieselBox)
+        dieselBox = CheckBox(this).apply { text = "Force diesel (normally detected from the car)"; isChecked = prefs.diesel }; col.addView(dieselBox)
         col.addView(label("MQTT topic base and HA device name"))
         topicBase = edit(prefs.topicBase, "car/my_car"); col.addView(topicBase)
         devName = edit(prefs.haDeviceName, "My car"); col.addView(devName)

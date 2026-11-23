@@ -89,10 +89,11 @@ class Prefs(private val ctx: Context) {
     // --- fuel ------------------------------------------------------------------------
     /** Tank size in litres; 0 = unknown (then only cluster-reported litres give "remaining"). */
     var tankLitres: Double
-        get() = sp.getFloat("tank", if (vehicleRepo == "Mazda-CX-5") 56f else 0f).toDouble()
+        get() = sp.getFloat("tank", 0f).toDouble()
         set(v) = sp.edit().putFloat("tank", v.toFloat()).apply()
+    /** Override only: the car's own fuel-type report wins unless this is ticked. */
     var diesel: Boolean
-        get() = sp.getBoolean("diesel", vehicleRepo == "Mazda-CX-5")
+        get() = sp.getBoolean("diesel", false)
         set(v) = sp.edit().putBoolean("diesel", v).apply()
     /** FuelTracker state (long-run average, fill-to-fill baseline) carried between drives. */
     var fuelState: Map<String, Any?>
@@ -102,6 +103,7 @@ class Prefs(private val ctx: Context) {
     fun loggerConfig() = LoggerConfig(
         publishAll = publishAll, publishCandidates = publishCandidates,
         fuelType = if (diesel) uk.co.ashunt.carmonitor.core.FuelType.DIESEL else uk.co.ashunt.carmonitor.core.FuelType.PETROL,
+        forceFuelType = diesel,
         tankLitres = tankLitres.takeIf { it > 0 },
         fuelState = fuelState,
         logSweepHits = logSweepHits,
