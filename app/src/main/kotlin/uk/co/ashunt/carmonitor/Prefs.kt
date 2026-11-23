@@ -20,7 +20,41 @@ class Prefs(private val ctx: Context) {
     var brokerHost: String get() = str("host", ""); set(v) = put("host", v)
     var brokerPort: Int get() = sp.getInt("port", 1883); set(v) = sp.edit().putInt("port", v).apply()
     var brokerUser: String get() = str("user", ""); set(v) = put("user", v)
-    var brokerPass: String get() = str("pass", ""); set(v) = put("pass", v)
+    /** Encrypted at rest (Android Keystore). Migrates a pre-0.3 plaintext value on first read. */
+    var brokerPass: String
+        get() = secret("pass_enc", legacyPlainKey = "pass")
+        set(v) = put("pass_enc", SecretStore.encrypt(v))
+
+    // --- connection mode ------------------------------------------------------------
+    /** "mqtt" = direct to the broker; "ha" = Home Assistant REST API with a long-lived token. */
+    var connMode: String get() = str("conn", "mqtt"); set(v) = put("conn", v)
+    var haUrl: String get() = str("haurl", ""); set(v) = put("haurl", v)
+    var haToken: String
+        get() = secret("hatok_enc")
+        set(v) = put("hatok_enc", SecretStore.encrypt(v))
+
+    private fun secret(key: String, legacyPlainKey: String? = null): String {
+        sp.getString(key, null)?.let { return SecretStore.decrypt(it) }
+        val plain = legacyPlainKey?.let { sp.getString(it, null) } ?: return ""
+        sp.edit().putString(key, SecretStore.encrypt(plain)).remove(legacyPlainKey).apply()
+        return plain
+    }
+
+    fun connectionSummary(): String = when (connMode) {
+        "ha" -> if (haUrl.isBlank()) "Home Assistant token: not set" else "Home Assistant API · $haUrl · token " + (if (haToken.isEmpty()) "missing" else "saved")
+        else -> if (brokerHost.isBlank()) "MQTT broker: not set" else "MQTT · $brokerHost:$brokerPort" + (if (brokerUser.isNotBlank()) " · user $brokerUser" else "")
+    }
+
+    // --- autostart on Bluetooth connection ----------------------------------------
+    var btAutostart: Boolean get() = sp.getBoolean("btauto", true); set(v) = sp.edit().putBoolean("btauto", v).apply()
+    /**
+     * The car's own Bluetooth devices (e.g. the Mazda CMU / head unit). When any of these connects
+     * to the phone, the car is on: start the logger and dial the OBD dongle. Empty = only the dongle.
+     */
+    var carDevices: Set<String>
+        get() = sp.getStringSet("cardevs", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("cardevs", v).apply()
+    fun isTrigger(address: String) = address in carDevices || address == deviceAddress
     /** Used when the VIN carries no model-year code (most EU/JDM VINs). */
     var modelYear: Int get() = sp.getInt("year", 2017); set(v) = sp.edit().putInt("year", v).apply()
     var publishAll: Boolean get() = sp.getBoolean("all", false); set(v) = sp.edit().putBoolean("all", v).apply()

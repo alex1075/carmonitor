@@ -9,7 +9,12 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.companion.AssociationInfo
+import android.companion.AssociationRequest
+import android.companion.BluetoothDeviceFilter
+import android.companion.CompanionDeviceManager
 import android.content.IntentFilter
+import android.content.IntentSender
 import android.os.Build
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -26,6 +31,8 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
@@ -38,12 +45,15 @@ import java.io.File
 /** Plain framework widgets, no AndroidX: one screen for setup, control and live values. */
 class MainActivity : Activity() {
 
+    companion object {
+        const val ACTION_START_FROM_NOTIFICATION = "uk.co.ashunt.carmonitor.START"
+    }
+
     private lateinit var prefs: Prefs
     private lateinit var device: Spinner
-    private lateinit var host: EditText
-    private lateinit var port: EditText
-    private lateinit var user: EditText
-    private lateinit var pass: EditText
+    private lateinit var connLabel: TextView
+    private lateinit var carLabel: TextView
+    private lateinit var btAuto: CheckBox
     private lateinit var year: EditText
     private lateinit var sweep: EditText
     private lateinit var all: CheckBox
@@ -112,11 +122,21 @@ class MainActivity : Activity() {
         col.addView(label("OBD dongle (paired devices)"))
         device = Spinner(this); col.addView(device)
         col.addView(row(button("Scan & pair…") { scanAndPair() }))
-        col.addView(label("MQTT broker (HA's Mosquitto, via Tailscale/NetBird IP)"))
-        host = edit(prefs.brokerHost, "100.x.y.z"); col.addView(host)
-        port = edit(prefs.brokerPort.toString(), "1883", InputType.TYPE_CLASS_NUMBER); col.addView(port)
-        user = edit(prefs.brokerUser, "username"); col.addView(user)
-        pass = edit(prefs.brokerPass, "password", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD); col.addView(pass)
+
+        col.addView(label("Autostart: this car's Bluetooth"))
+        btAuto = CheckBox(this).apply { text = "Start logging when the car's Bluetooth connects"; isChecked = prefs.btAutostart }
+        col.addView(btAuto)
+        carLabel = TextView(this); col.addView(carLabel)
+        col.addView(row(
+            button("Choose car Bluetooth…") { save(); chooseCarDevices() },
+            button("Allow background start…") { save(); linkCompanion() },
+        ))
+        col.addView(label("Home Assistant connection"))
+        connLabel = TextView(this).apply { text = prefs.connectionSummary() }; col.addView(connLabel)
+        col.addView(row(
+            button("Connection settings…") { save(); connectionDialog() },
+            button("Test HA connection") { save(); testConnection() },
+        ))
         col.addView(label("Model year (picks the OBDb year file; EU VINs have no year code)"))
         year = edit(prefs.modelYear.toString(), "2017", InputType.TYPE_CLASS_NUMBER); col.addView(year)
         col.addView(label("Sweep ranges (header:from-to, comma separated)"))
@@ -124,10 +144,7 @@ class MainActivity : Activity() {
         all = CheckBox(this).apply { text = "Publish every supported signal to HA"; isChecked = prefs.publishAll }; col.addView(all)
         cand = CheckBox(this).apply { text = "Publish unvalidated diesel candidates (raw)"; isChecked = prefs.publishCandidates }; col.addView(cand)
         boot = CheckBox(this).apply { text = "Start on boot"; isChecked = prefs.autoStart }; col.addView(boot)
-        col.addView(row(
-            button("Save settings") { save(); toast("Saved. Stop/Start to apply.") },
-            button("Test HA connection") { save(); testMqtt() },
-        ))
+        col.addView(row(button("Save settings") { save(); toast("Saved. Stop/Start to apply.") }))
 
         col.addView(label("Live"))
         live = TextView(this).apply { typeface = Typeface.MONOSPACE; textSize = 12f }; col.addView(live)
@@ -143,12 +160,24 @@ class MainActivity : Activity() {
         }
         setContentView(root)
         refreshVehicle()
+        refreshCar()
+        handleIntent(intent)
         askPermissions()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(i: Intent?) {
+        if (i?.action == ACTION_START_FROM_NOTIFICATION) { ObdService.start(this, ObdService.ACTION_LOG); toast("Logger started") }
     }
 
     override fun onResume() {
         super.onResume()
         loadDevices()
+        refreshCar()
         tick()
     }
 
@@ -160,7 +189,7 @@ class MainActivity : Activity() {
     private fun tick() {
         val prof = prefs.profile()
         status.text = "● ${Status.state}  ${Status.detail}\n" +
-            "MQTT: ${if (Status.mqtt) "connected" else "—"}   profile: " +
+            "HA link: ${if (Status.mqtt) "ok" else "—"}   profile: " +
             (prof?.let { p -> "${p.results.values.count { it.support.name == "SUPPORTED" }} signals, ${p.sweepHits.size} sweep hits" } ?: "none yet")
         live.text = Status.live.entries.joinToString("\n") { "%-26s %s".format(it.key, it.value) }
         log.text = Status.logText()
@@ -277,15 +306,12 @@ class MainActivity : Activity() {
 
     private fun save() {
         devices.getOrNull(device.selectedItemPosition)?.let { prefs.deviceAddress = it.second }
-        prefs.brokerHost = host.text.toString().trim()
-        prefs.brokerPort = port.text.toString().toIntOrNull() ?: 1883
-        prefs.brokerUser = user.text.toString()
-        prefs.brokerPass = pass.text.toString()
         prefs.modelYear = year.text.toString().toIntOrNull() ?: 2017
         prefs.sweep = sweep.text.toString()
         prefs.publishAll = all.isChecked
         prefs.publishCandidates = cand.isChecked
         prefs.autoStart = boot.isChecked
+        prefs.btAutostart = btAuto.isChecked
         prefs.topicBase = topicBase.text.toString().trim().trim('/').ifBlank { prefs.topicBase }
         prefs.haDeviceName = devName.text.toString().trim().ifBlank { prefs.haDeviceName }
         prefs.legacyTopics = legacy.isChecked
@@ -394,6 +420,7 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 12) { refreshCar(); if (resultCode == RESULT_OK) toast("Linked: background start allowed"); return }
         val uri: Uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
         try {
@@ -411,24 +438,120 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Connect with the current broker settings and publish a test sensor HA can show. */
-    private fun testMqtt() {
-        val host = prefs.brokerHost
-        if (host.isBlank()) { toast("Enter the broker host first"); return }
+    // --- Connection settings submenu -----------------------------------------------
+    private fun secretField(hint: String, saved: Boolean) = EditText(this).apply {
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD   // masked; no setSingleLine (it unmasks)
+        this.hint = if (saved) "•••••••• saved (leave blank to keep)" else hint
+    }
+
+    private fun showToggle(target: EditText) = CheckBox(this).apply {
+        text = "Show"
+        setOnCheckedChangeListener { _, on ->
+            target.inputType = InputType.TYPE_CLASS_TEXT or
+                (if (on) InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD else InputType.TYPE_TEXT_VARIATION_PASSWORD)
+            target.setSelection(target.text.length)
+        }
+    }
+
+    private fun connectionDialog() {
+        val pad = (12 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, 0) }
+        fun field(v: String, hint: String, type: Int = InputType.TYPE_CLASS_TEXT) =
+            EditText(this).apply { setText(v); this.hint = hint; inputType = type }
+        fun lbl(t: String) = TextView(this).apply { text = t; setPadding(0, pad / 2, 0, 0) }
+
+        val modeMqtt = RadioButton(this).apply { text = "MQTT broker (username / password)"; id = View.generateViewId() }
+        val modeHa = RadioButton(this).apply { text = "Home Assistant API (long-lived token)"; id = View.generateViewId() }
+        val group = RadioGroup(this).apply { addView(modeMqtt); addView(modeHa) }
+        box.addView(group)
+
+        val mqttBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val host = field(prefs.brokerHost, "broker host, e.g. 100.x.y.z (Tailscale/NetBird IP)")
+        val port = field(prefs.brokerPort.toString(), "1883", InputType.TYPE_CLASS_NUMBER)
+        val user = field(prefs.brokerUser, "username")
+        val pass = secretField("password", prefs.brokerPass.isNotEmpty())
+        mqttBox.addView(lbl("Host")); mqttBox.addView(host)
+        mqttBox.addView(lbl("Port")); mqttBox.addView(port)
+        mqttBox.addView(lbl("Username")); mqttBox.addView(user)
+        mqttBox.addView(lbl("Password")); mqttBox.addView(pass); mqttBox.addView(showToggle(pass))
+
+        val haBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val url = field(prefs.haUrl, "https://home.example.org", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        val token = secretField("long-lived access token", prefs.haToken.isNotEmpty())
+        haBox.addView(lbl("Home Assistant URL")); haBox.addView(url)
+        haBox.addView(lbl("Access token (HA → Profile → Security → Long-lived access tokens)")); haBox.addView(token); haBox.addView(showToggle(token))
+        haBox.addView(lbl("Publishes via HA's mqtt.publish service, so the MQTT integration must be set up. Updates are batched every 3 s."))
+
+        box.addView(mqttBox); box.addView(haBox)
+        fun apply(mode: String) {
+            mqttBox.visibility = if (mode == "mqtt") View.VISIBLE else View.GONE
+            haBox.visibility = if (mode == "ha") View.VISIBLE else View.GONE
+        }
+        group.check(if (prefs.connMode == "ha") modeHa.id else modeMqtt.id)
+        apply(prefs.connMode)
+        group.setOnCheckedChangeListener { _, id -> apply(if (id == modeHa.id) "ha" else "mqtt") }
+
+        fun store() {
+            prefs.connMode = if (group.checkedRadioButtonId == modeHa.id) "ha" else "mqtt"
+            prefs.brokerHost = host.text.toString().trim()
+            prefs.brokerPort = port.text.toString().toIntOrNull() ?: 1883
+            prefs.brokerUser = user.text.toString().trim()
+            if (pass.text.isNotEmpty()) prefs.brokerPass = pass.text.toString()
+            prefs.haUrl = url.text.toString().trim().trimEnd('/')
+            if (token.text.isNotEmpty()) prefs.haToken = token.text.toString().trim()
+            connLabel.text = prefs.connectionSummary()
+        }
+
+        val dlg = AlertDialog.Builder(this).setTitle("Connection settings")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Save") { _, _ -> store(); toast("Saved. Stop/Start the logger to apply.") }
+            .setNeutralButton("Test", null)
+            .setNegativeButton("Cancel", null)
+            .show()
+        // Keep the dialog open while testing
+        dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { store(); testConnection() }
+    }
+
+    /** Check the configured uplink and publish a 'Connection test' sensor HA can show. */
+    private fun testConnection() {
         val t = prefs.scheme()
+        val (cfgTopic, cfg) = uk.co.ashunt.carmonitor.core.HaDiscovery.connectionTest(t)
+        val now = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.UK).format(java.util.Date())
+        val ok = "In HA: device '${t.deviceName}' → 'Connection test' = OK $now"
+        if (prefs.connMode == "ha") {
+            val base = prefs.haUrl
+            if (base.isBlank() || prefs.haToken.isEmpty()) { toast("Set the HA URL and token first"); return }
+            toast("Testing $base…")
+            Thread {
+                val tok = prefs.haToken
+                val msg = uk.co.ashunt.carmonitor.core.HaRestSink.check(base, tok)?.let { "HA API test failed: $it" } ?: run {
+                    val sink = uk.co.ashunt.carmonitor.core.HaRestSink(base, tok, flushMs = 3_600_000)
+                    sink.publish(cfgTopic, cfg, true); sink.flush()
+                    Thread.sleep(500)
+                    sink.publish("${t.base}/test", "OK $now", true)
+                    val sent = sink.flush(); val err = sink.lastError; sink.close()
+                    if (sent == 1) "Token accepted and published via HA. $ok" +
+                        (if (base.startsWith("http://") && !Regex("""^http://(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.|127\.)""").containsMatchIn(base))
+                            "\nWarning: plain http over the internet exposes the token. Use https." else "")
+                    else "Token accepted, but publishing failed: $err"
+                }
+                Status.log(msg); runOnUiThread { toast(msg) }
+            }.start()
+            return
+        }
+        val host = prefs.brokerHost
+        if (host.isBlank()) { toast("Set the broker host first (Connection settings…)"); return }
         toast("Testing $host:${prefs.brokerPort}…")
         Thread {
             val msg = try {
                 val m = uk.co.ashunt.carmonitor.core.MiniMqtt(host, prefs.brokerPort, "carmonitor-test-" + Build.MODEL.replace(' ', '-'),
                     prefs.brokerUser.ifBlank { null }, prefs.brokerPass.ifBlank { null })
                 m.connect(timeoutMs = 6000)
-                val (cfgTopic, cfg) = uk.co.ashunt.carmonitor.core.HaDiscovery.connectionTest(t)
                 m.publish(cfgTopic, cfg, retain = true)
                 Thread.sleep(300)   // let HA create the entity before the first state
-                val now = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.UK).format(java.util.Date())
                 m.publish("${t.base}/test", "OK $now", retain = true)
                 m.close()
-                "Connected to the broker. In HA: device '${t.deviceName}' → 'Connection test' = OK $now"
+                "Connected to the broker. $ok"
             } catch (e: java.net.UnknownHostException) {
                 "Can't resolve '$host'. Is the VPN (Tailscale/NetBird) up?"
             } catch (e: java.net.SocketTimeoutException) {
@@ -438,9 +561,77 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 "MQTT test failed: ${e.message}"
             }
-            Status.log(msg)
-            runOnUiThread { toast(msg) }
+            Status.log(msg); runOnUiThread { toast(msg) }
         }.start()
+    }
+
+    // --- Car Bluetooth trigger + companion link ----------------------------------------
+    @SuppressLint("MissingPermission")
+    private fun bonded(): List<Pair<String, String>> =
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) emptyList()
+        else (adapter()?.bondedDevices ?: emptySet()).map { (it.name ?: "?") to it.address }.sortedBy { it.first }
+
+    private fun refreshCar() {
+        val names = bonded().associate { (n, a) -> a to n }
+        val cars = prefs.carDevices.map { names[it] ?: it }
+        val dongle = prefs.deviceAddress?.let { names[it] ?: it } ?: "no dongle selected"
+        carLabel.text = (if (cars.isEmpty()) "Trigger: the dongle only ($dongle)" else "When ${cars.joinToString(" or ")} connects → dial $dongle") +
+            "\nBackground start: " + (if (isLinked()) "allowed (linked)" else "not linked yet: you'll get a tap-to-start notification")
+    }
+
+    private fun chooseCarDevices() {
+        val list = bonded().filter { it.second != prefs.deviceAddress }
+        if (list.isEmpty()) { toast("No other paired devices. Pair the car's Bluetooth (head unit) with this phone first."); return }
+        val chosen = list.map { it.second in prefs.carDevices }.toBooleanArray()
+        AlertDialog.Builder(this).setTitle("Which of these are the car?")
+            .setMultiChoiceItems(list.map { "${it.first}  (${it.second})" }.toTypedArray(), chosen) { _, i, on -> chosen[i] = on }
+            .setPositiveButton("Save") { _, _ ->
+                prefs.carDevices = list.filterIndexed { i, _ -> chosen[i] }.map { it.second }.toSet()
+                refreshCar()
+                toast("When the car's Bluetooth connects, CarMonitor dials the OBD dongle.")
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    /** Address the companion link is made with: the first car device, else the dongle. */
+    private fun linkTarget(): String? = prefs.carDevices.sorted().firstOrNull() ?: prefs.deviceAddress
+
+    private fun isLinked(): Boolean {
+        val addr = linkTarget() ?: return false
+        val cdm = getSystemService(CompanionDeviceManager::class.java) ?: return false
+        return try {
+            if (Build.VERSION.SDK_INT >= 33) cdm.myAssociations.any { it.deviceMacAddress?.toString()?.equals(addr, true) == true }
+            else @Suppress("DEPRECATION") cdm.associations.any { it.equals(addr, true) }
+        } catch (_: Exception) { false }
+    }
+
+    /**
+     * Companion-device link: the system dialog asks once; afterwards Android lets the
+     * car-Bluetooth trigger start the logger's foreground service from the background.
+     */
+    private fun linkCompanion() {
+        val addr = linkTarget() ?: run { toast("Pick the dongle or the car's Bluetooth first"); return }
+        if (isLinked()) { toast("Already linked"); return }
+        val cdm = getSystemService(CompanionDeviceManager::class.java) ?: run { toast("Companion devices not supported on this phone"); return }
+        val req = AssociationRequest.Builder()
+            .addDeviceFilter(BluetoothDeviceFilter.Builder().setAddress(addr).build())
+            .setSingleDevice(true)
+            .build()
+        val launch = { sender: IntentSender -> startIntentSenderForResult(sender, 12, null, 0, 0, 0) }
+        if (Build.VERSION.SDK_INT >= 33) {
+            cdm.associate(req, mainExecutor, object : CompanionDeviceManager.Callback() {
+                override fun onAssociationPending(intentSender: IntentSender) { launch(intentSender) }
+                override fun onAssociationCreated(associationInfo: AssociationInfo) { runOnUiThread { refreshCar(); toast("Linked: background start allowed") } }
+                override fun onFailure(error: CharSequence?) { runOnUiThread { toast("Link failed: $error") } }
+            })
+        } else {
+            @Suppress("DEPRECATION")
+            cdm.associate(req, object : CompanionDeviceManager.Callback() {
+                @Deprecated("API 31-32 path")
+                override fun onDeviceFound(intentSender: IntentSender) { launch(intentSender) }
+                override fun onFailure(error: CharSequence?) { runOnUiThread { toast("Link failed: $error") } }
+            }, null)
+        }
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()

@@ -276,6 +276,36 @@ object SelfTest {
         eq(MiniMqtt.REFUSED[5]?.startsWith("not authorised"), true, "CONNACK rc 5 explained")
     }
 
+
+    fun haRest() {
+        val calls = mutableListOf<Pair<String, String>>()
+        var code = 200
+        val sink = HaRestSink("https://ha.example.org/", "tok", flushMs = 3_600_000, post = { u, tk, b ->
+            check(tk == "tok", "bearer token passed"); calls += u to b; code })
+        sink.publish("car/x/sig/RPM", "800", false)
+        sink.publish("car/x/sig/RPM", "900", false)          // coalesced: latest wins
+        sink.publish("car/x/logger/status", "online", true)
+        eq(sink.flush(), 2, "two coalesced messages delivered")
+        eq(calls[0].first, "https://ha.example.org/api/services/mqtt/publish", "service URL, trailing slash trimmed")
+        check(calls[0].second.contains("\"payload\":\"900\""), "latest payload sent")
+        check(calls[1].second.contains("\"retain\":true"), "retain flag forwarded")
+        check(sink.connected && sink.lastError == null, "healthy after 200s")
+        calls.clear(); code = 401
+        sink.publish("car/x/dtc/codes", "P0401", true)
+        sink.publish("car/x/sig/VSS", "30", false)
+        sink.publish("car/x/trip/last_distance_km", "12.0", true)
+        eq(sink.flush(), 0, "401 delivers nothing")
+        eq(calls.size, 1, "stops after first 401")
+        check(!sink.connected && sink.lastError!!.contains("token"), "401 explained: ${sink.lastError}")
+        calls.clear(); code = 200
+        eq(sink.flush(), 2, "retained messages retried, live one dropped")
+        check(calls.none { it.second.contains("sig/VSS") }, "live value not retried")
+        eq(HaRestSink.check("https://ha/", "t") { u, _ -> if (u == "https://ha/api/") 200 else 0 }, null, "API check ok")
+        check(HaRestSink.check("https://ha", "t") { _, _ -> 401 }!!.contains("401"), "API check 401")
+        check(HaRestSink.check("https://ha", "t") { _, _ -> throw java.io.IOException("no route") }!!.startsWith("Can't reach"), "API check unreachable")
+        sink.close()
+    }
+
     fun json() {
         val s = """{"a":[1,2.5,-3e2,"x\"yé"],"b":{"c":null,"d":true}}"""
         val o = MiniJson.obj(s)
@@ -294,6 +324,7 @@ object SelfTest {
         logger(lib, prof)
         genericLogger(lib, prof)
         catalog()
+        haRest()
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,

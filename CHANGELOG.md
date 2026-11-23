@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2026-11-23
+### Added
+- **Home Assistant API mode**: log in with a long-lived access token instead of a broker username/password. Publishes via
+  HA's `mqtt.publish` over HTTPS (no broker port or VPN), batched every 3 s, retained messages retried.
+- **Connection settings** submenu with mode choice, masked secrets with a *Show* toggle, and an in-dialog *Test*.
+- **Autostart on the car's Bluetooth**: tick the head unit (for example the Mazda CMU); when it connects, the logger starts and
+  dials the OBD dongle. Companion-device link for background start, with a tap-to-start notification fallback.
+### Security
+- MQTT password and HA token encrypted at rest with the Android Keystore (AES-256-GCM); old plaintext passwords migrated.
+### Fixed
+- The password field was readable: `setSingleLine()` after the password input type removed the masking.
+
 ## [0.2.2] - 2026-11-22
 ### Fixed
 - Vehicle picker list now closes on selection; a progress dialog shows while the signalset downloads.
