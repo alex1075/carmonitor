@@ -405,7 +405,10 @@ class MainActivity : Activity() {
             sb.append("status: ").append(Status.state).append(" ").append(Status.detail).append('\n')
             p?.let { sb.append("profile: adapter='").append(it.adapter).append("' warnings=").append(it.adapterWarnings).append('\n') }
             CrashLog.file(this).takeIf { it.exists() }?.let { sb.append("\n=== last crash ===\n").append(it.readText()) }
-            sb.append("\n=== app log (newest first) ===\n").append(Status.logText()).append('\n')
+            sb.append("\n=== app log, this session (newest first) ===\n").append(Status.logText()).append('\n')
+            for (n in listOf("app-log.1.txt", "app-log.txt")) File(filesDir, n).takeIf { it.exists() }?.let {
+                sb.append("\n=== persistent log $n (oldest first, last 300 KB) ===\n").append(it.readText().takeLast(300_000))
+            }
             sb.append("\n=== logcat (this app) ===\n")
             try {
                 val proc = ProcessBuilder("logcat", "-d", "-v", "time", "--pid", android.os.Process.myPid().toString())

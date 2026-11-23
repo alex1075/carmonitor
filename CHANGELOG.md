@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1] - 2026-11-23
+### Fixed
+- Auto-connect could miss rides: a session that had stopped hearing from the ECU never released the dongle, so the next
+  car-Bluetooth trigger was ignored. Now: no ECU reply for 60 s releases the dongle and returns to waiting, a trigger
+  during a silent session forces a reconnect, and a session with nothing to poll refuses to start.
+### Added
+- Persistent app log (survives restarts, rotates at 512 KB), included in **Export app log**; the trigger receiver logs
+  there even when the logger isn't running.
+
 ## [0.5.0] - 2026-11-23
 ### Added
 - Discovery also probes OBDb's "debug" commands (159 on the CX-5, e.g. EGT 1/2 at 2203F4/F5); existing profiles
