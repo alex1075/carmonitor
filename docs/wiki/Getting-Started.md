@@ -41,7 +41,8 @@ A Bluetooth OBD dongle never connects to the phone by itself, so CarMonitor uses
 3. **Allow background start…** → approve Android's companion-device dialog. This lets the app start its logger from the
    background when the car connects. Without it you get a *tap to start* notification instead.
 
-When the car's Bluetooth connects, the logger starts and dials the dongle immediately. If you haven't picked a car device,
+When the car's Bluetooth connects, the logger starts and dials the dongle immediately. When it disconnects
+(ignition off), the trip ends after 10 s and the app parks until the next start, with no re-dialling overnight. If you haven't picked a car device,
 the service (started on boot) keeps retrying the dongle every 20 s.
 
 ## 6. First drive

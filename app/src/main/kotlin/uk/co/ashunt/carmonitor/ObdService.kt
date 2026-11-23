@@ -60,6 +60,8 @@ class ObdService : Service() {
         const val ACTION_LOG = "log"
         const val ACTION_DISCOVER = "discover"
         const val ACTION_STOP = "stop"
+        const val ACTION_CAR_OFF = "car_off"
+        private const val CAR_OFF_GRACE_MS = 10_000L
         const val EXTRA_SWEEP = "sweep"
         private const val CHANNEL = "obd"
         private const val NOTE_ID = 1
@@ -82,6 +84,10 @@ class ObdService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_CAR_OFF) {
+            if (worker?.isAlive == true) carOffAt = System.currentTimeMillis()
+            return START_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             running = false
             poke()
@@ -94,7 +100,7 @@ class ObdService : Service() {
         createChannel()
         startForeground(NOTE_ID, note("Waiting for the car…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         if (intent?.action == ACTION_DISCOVER) discoverRequested = intent.getBooleanExtra(EXTRA_SWEEP, false)
-        if (intent?.action == ACTION_LOG) poke()   // e.g. car Bluetooth just connected: dial the dongle now
+        if (intent?.action == ACTION_LOG) { carOffAt = 0L; parked = false; poke() }   // car Bluetooth connected: dial now
         if (worker?.isAlive != true) {
             running = true
             worker = Thread({ loop() }, "obd-worker").apply { start() }
@@ -121,6 +127,10 @@ class ObdService : Service() {
             while (running) {
                 val addr = prefs.deviceAddress
                 if (addr == null) { setState("no dongle selected", ""); sleep(5000); continue }
+                if (parked && prefs.btAutostart && prefs.carDevices.isNotEmpty()) {
+                    setState("parked", "waiting for the car's Bluetooth"); updateNote("Parked: waiting for the car")
+                    sleep(30 * 60_000L); continue          // a car-Bluetooth connect pokes us awake
+                }
                 if (!prefs.hasSignalset()) { setState("vehicle signalset not downloaded", "choose the vehicle again"); sleep(10_000); continue }
                 if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                     setState("needs Bluetooth permission", ""); sleep(5000); continue
@@ -196,7 +206,13 @@ class ObdService : Service() {
                             if (silentMs > 60_000) Status.log("no ECU replies for ${silentMs / 1000} s, releasing the dongle")
                             // A car-Bluetooth trigger while the ECU is silent also forces a fresh connection
                             if (pokedFlag && silentMs > 5_000) Status.log("car Bluetooth connected during a silent session, reconnecting")
-                            val restart = silentMs > 60_000 || (pokedFlag && silentMs > 5_000)
+                            val off = carOffAt
+                            val carGone = off != 0L && t - off >= CAR_OFF_GRACE_MS
+                            if (carGone) { Status.log("car Bluetooth gone for ${(t - off) / 1000} s, ending session"); carOffAt = 0L }
+                            val restart = silentMs > 60_000 || (pokedFlag && silentMs > 5_000) || carGone
+                            // Park (stop dialling) only when the car's Bluetooth actually went away; mere ECU
+                            // silence while the car is still connected just reconnects.
+                            if (carGone && prefs.carDevices.isNotEmpty() && prefs.btAutostart) parked = true
                             pokedFlag = false
                             !running || discoverRequested != null || restart
                         }) } finally { prefs.fuelState = engine.fuel.state() }
@@ -236,6 +252,10 @@ class ObdService : Service() {
         }
     }
     @Volatile private var pokedFlag = false
+    /** When the car's Bluetooth disconnected (0 = not off). */
+    @Volatile private var carOffAt = 0L
+    /** Parked: don't dial the dongle until the car's Bluetooth connects again (saves both batteries). */
+    @Volatile private var parked = false
     private fun poke() = synchronized(pokeLock) { poked = true; pokedFlag = true; pokeLock.notifyAll() }
 
     private fun acquireWake() {
