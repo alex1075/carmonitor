@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0] - 2026-11-23
+### Added
+- **Fuel, economy and range**: fuel rate (L/h), instant and trip economy (L/100 km and UK mpg), trip fuel used,
+  fuel remaining (L), range (km) and a long-run average, each a Home Assistant sensor.
+  Sources, best first: measured fuel rate, then MAF + standard lambda/O2 estimate, then fuel level with a
+  fill-to-fill average that resets on refuelling. The source is published as *Fuel rate source*.
+- Tank size and diesel/petrol settings (CX-5 preset: 56 L; AWD is 58 L).
+### Fixed
+- Implausible manufacturer values (e.g. exhaust O2 above 20.95 %) are rejected for fuel maths.
+
 ## [0.3.1] - 2026-11-23
 ### Fixed
 - Logger could sit at "polling 0 commands" forever after a discovery that ran while the ECU was asleep. Empty profiles are no longer saved, and a saved profile with no supported signals triggers re-discovery.

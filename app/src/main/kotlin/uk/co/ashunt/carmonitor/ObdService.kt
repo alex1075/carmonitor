@@ -158,7 +158,8 @@ class ObdService : Service() {
                         setState("logging", "${engine.pollCount} commands")
                         updateNote("Logging ${engine.pollCount} signals")
                         var lastUi = 0L
-                        engine.run(stop = {
+                        var lastFuelSave = System.currentTimeMillis()
+                        try { engine.run(stop = {
                             val t = System.currentTimeMillis()
                             if (t - lastUi > 1000) {
                                 lastUi = t
@@ -169,8 +170,9 @@ class ObdService : Service() {
                                 Status.detail = if (engine.tripActive) "trip active" + (if (engine.regenActive) " · REGEN" else "") else "idle"
                                 w.flush()
                             }
+                            if (t - lastFuelSave > 60_000) { lastFuelSave = t; prefs.fuelState = engine.fuel.state() }
                             !running || discoverRequested != null
-                        })
+                        }) } finally { prefs.fuelState = engine.fuel.state() }
                     }
                 } catch (e: IOException) {
                     Status.log("link lost: ${e.message}")

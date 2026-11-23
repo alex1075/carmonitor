@@ -82,9 +82,28 @@ class Prefs(private val ctx: Context) {
         val s = if (v?.repo == "Mazda-CX-5") TopicScheme.MAZDA_CX5_LEGACY else TopicScheme.forVehicle(v)
         topicBase = s.base; haDeviceId = s.deviceId; haDeviceName = s.deviceName; legacyTopics = s.legacy
         profileFile.delete()          // a profile belongs to one car's signalset
+        sp.edit().remove("fuelstate").remove("tank").remove("diesel").apply()
     }
 
-    fun loggerConfig() = LoggerConfig(publishAll = publishAll, publishCandidates = publishCandidates)
+    // --- fuel ------------------------------------------------------------------------
+    /** Tank size in litres; 0 = unknown (then only cluster-reported litres give "remaining"). */
+    var tankLitres: Double
+        get() = sp.getFloat("tank", if (vehicleRepo == "Mazda-CX-5") 56f else 0f).toDouble()
+        set(v) = sp.edit().putFloat("tank", v.toFloat()).apply()
+    var diesel: Boolean
+        get() = sp.getBoolean("diesel", vehicleRepo == "Mazda-CX-5")
+        set(v) = sp.edit().putBoolean("diesel", v).apply()
+    /** FuelTracker state (long-run average, fill-to-fill baseline) carried between drives. */
+    var fuelState: Map<String, Any?>
+        get() = try { uk.co.ashunt.carmonitor.core.MiniJson.obj(str("fuelstate", "{}")) } catch (_: Exception) { emptyMap() }
+        set(v) = put("fuelstate", uk.co.ashunt.carmonitor.core.MiniJson.write(v))
+
+    fun loggerConfig() = LoggerConfig(
+        publishAll = publishAll, publishCandidates = publishCandidates,
+        fuelType = if (diesel) uk.co.ashunt.carmonitor.core.FuelType.DIESEL else uk.co.ashunt.carmonitor.core.FuelType.PETROL,
+        tankLitres = tankLitres.takeIf { it > 0 },
+        fuelState = fuelState,
+    )
 
     /** "7E0:0300-04FF, 7E0:F400-F4FF" -> ranges. Invalid entries are ignored. */
     fun sweepRanges(): List<SweepRange> = sweep.split(',', ';', '\n').mapNotNull { part ->

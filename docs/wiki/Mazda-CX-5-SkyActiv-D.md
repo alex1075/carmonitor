@@ -15,5 +15,10 @@ The project started as a DPF/EGR health monitor for this car, replacing a Pi Zer
   neighbouring clusters. All are **unvalidated guesses**. Follow [[Overlays and validating PIDs|Overlays-and-Validating-PIDs]]
   with FORScan's PM_ACC / PM_ACC_DSD / PM_GEN as the reference.
 
+**Fuel on the 2017 CX-5 diesel:** no fuel-rate PID answers (`015E` is absent, and OBDb marks Mazda `22F45E` as missing for
+2017–2021). OBDb's `CX5_OXY` (`220451`) reads 55–64 % at idle, which is physically impossible (exhaust O2 ≤ 20.9 %), so it isn't
+used. Standard MAF `0110` reads only ~1.4 g/s at idle, while MAF-A `0166` reads a plausible 4–7 g/s. Result: economy comes from
+the fuel level (fill-to-fill) until an injection-quantity PID turns up among the sweep hits.
+
 Regen detection uses `018B` if present, otherwise a post-DPF EGT threshold (450 °C) or a ≥ 1 g/L soot drop during a
 trip.

@@ -51,6 +51,8 @@ class MainActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var device: Spinner
+    private lateinit var tank: EditText
+    private lateinit var dieselBox: CheckBox
     private lateinit var connLabel: TextView
     private lateinit var carLabel: TextView
     private lateinit var btAuto: CheckBox
@@ -113,6 +115,9 @@ class MainActivity : Activity() {
             button("Choose vehicle…") { save(); chooseVehicle() },
             button("Generic OBD-II only") { prefs.selectVehicle(null, "default.json"); refreshVehicle(); toast("Generic J1979 PIDs only. Run Discover.") },
         ))
+        col.addView(label("Fuel: tank size in litres (CX-5: 56 L 2WD, 58 L AWD)"))
+        tank = edit(if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else "", "e.g. 56", InputType.TYPE_CLASS_NUMBER); col.addView(tank)
+        dieselBox = CheckBox(this).apply { text = "Diesel engine"; isChecked = prefs.diesel }; col.addView(dieselBox)
         col.addView(label("MQTT topic base and HA device name"))
         topicBase = edit(prefs.topicBase, "car/my_car"); col.addView(topicBase)
         devName = edit(prefs.haDeviceName, "My car"); col.addView(devName)
@@ -312,6 +317,8 @@ class MainActivity : Activity() {
         prefs.publishCandidates = cand.isChecked
         prefs.autoStart = boot.isChecked
         prefs.btAutostart = btAuto.isChecked
+        prefs.tankLitres = tank.text.toString().toDoubleOrNull() ?: 0.0
+        prefs.diesel = dieselBox.isChecked
         prefs.topicBase = topicBase.text.toString().trim().trim('/').ifBlank { prefs.topicBase }
         prefs.haDeviceName = devName.text.toString().trim().ifBlank { prefs.haDeviceName }
         prefs.legacyTopics = legacy.isChecked
@@ -322,6 +329,8 @@ class MainActivity : Activity() {
         vehicleLabel.text = (v?.label ?: "Generic OBD-II (SAE J1979 only)") +
             (if (v != null) "  ·  ${prefs.signalsetFile}" + (if (prefs.hasSignalset()) "" else "  (not downloaded)") else "")
         topicBase.setText(prefs.topicBase)
+        tank.setText(if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else "")
+        dieselBox.isChecked = prefs.diesel
         devName.setText(prefs.haDeviceName)
         legacy.isChecked = prefs.legacyTopics
     }

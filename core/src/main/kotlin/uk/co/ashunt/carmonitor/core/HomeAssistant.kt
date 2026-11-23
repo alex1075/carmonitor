@@ -32,6 +32,16 @@ data class TopicScheme(
     val dtcCodes get() = "$base/dtc/codes"
     val dtcPending get() = "$base/dtc/pending"
     val regenActive get() = "$base/regen_active"
+    val fuelRate get() = "$base/fuel/rate_lh"
+    val fuelEconomy get() = "$base/fuel/economy_l100km"
+    val fuelEconomyMpg get() = "$base/fuel/economy_mpg"
+    val tripFuel get() = "$base/fuel/trip_used_l"
+    val tripEconomy get() = "$base/fuel/trip_l100km"
+    val tripEconomyMpg get() = "$base/fuel/trip_mpg"
+    val avgEconomy get() = "$base/fuel/average_l100km"
+    val fuelRemaining get() = "$base/fuel/remaining_l"
+    val fuelRange get() = "$base/fuel/range_km"
+    val fuelSource get() = "$base/fuel/source"
     /** Distance unit factor for engine-derived trip topics (km -> topic unit). */
     val distFactor get() = if (legacy) KM_TO_MI else 1.0
 
@@ -148,6 +158,29 @@ object HaDiscovery {
         cfg.remove("availability_topic")
         cfg["entity_category"] = "diagnostic"; cfg["icon"] = "mdi:lan-check"
         return "homeassistant/sensor/$uid/config" to MiniJson.write(cfg)
+    }
+
+    /** Fuel/economy/range entities (all schemes; these are new topics even on the CX-5 preset). */
+    fun fuelEntities(t: TopicScheme): List<Pair<String, String>> {
+        fun s(key: String, name: String, topic: String, extra: Map<String, Any?>, live: Boolean): Pair<String, String> {
+            val uid = "${t.deviceId}_$key"
+            val cfg = base(t, uid, name, topic); cfg.putAll(extra)
+            if (live) cfg["expire_after"] = 180 else cfg.remove("availability_topic")
+            return "homeassistant/sensor/$uid/config" to MiniJson.write(cfg)
+        }
+        val m = mapOf("state_class" to "measurement")
+        return listOf(
+            s("fuel_rate", "Fuel rate", t.fuelRate, m + mapOf("unit_of_measurement" to "L/h", "icon" to "mdi:fuel"), true),
+            s("fuel_economy", "Fuel economy", t.fuelEconomy, m + mapOf("unit_of_measurement" to "L/100km", "icon" to "mdi:gauge"), true),
+            s("fuel_economy_mpg", "Fuel economy (mpg)", t.fuelEconomyMpg, m + mapOf("unit_of_measurement" to "mpg", "icon" to "mdi:gauge"), true),
+            s("trip_fuel", "Trip fuel used", t.tripFuel, m + mapOf("unit_of_measurement" to "L", "device_class" to "volume"), false),
+            s("trip_economy", "Trip economy", t.tripEconomy, m + mapOf("unit_of_measurement" to "L/100km", "icon" to "mdi:map-marker-path"), false),
+            s("trip_economy_mpg", "Trip economy (mpg)", t.tripEconomyMpg, m + mapOf("unit_of_measurement" to "mpg", "icon" to "mdi:map-marker-path"), false),
+            s("average_economy", "Average economy", t.avgEconomy, m + mapOf("unit_of_measurement" to "L/100km", "icon" to "mdi:chart-line"), false),
+            s("fuel_remaining", "Fuel remaining", t.fuelRemaining, m + mapOf("unit_of_measurement" to "L", "device_class" to "volume_storage"), false),
+            s("fuel_range", "Range", t.fuelRange, m + mapOf("unit_of_measurement" to "km", "device_class" to "distance", "icon" to "mdi:gas-station"), false),
+            s("fuel_source", "Fuel rate source", t.fuelSource, mapOf("entity_category" to "diagnostic", "icon" to "mdi:information-outline"), false),
+        )
     }
 
     /** Engine-derived entities for non-legacy schemes (legacy ones live in the user's YAML). */
