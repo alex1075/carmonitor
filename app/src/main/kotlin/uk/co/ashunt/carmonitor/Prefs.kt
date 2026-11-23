@@ -60,6 +60,7 @@ class Prefs(private val ctx: Context) {
     var publishAll: Boolean get() = sp.getBoolean("all", false); set(v) = sp.edit().putBoolean("all", v).apply()
     var publishCandidates: Boolean get() = sp.getBoolean("cand", true); set(v) = sp.edit().putBoolean("cand", v).apply()
     var autoStart: Boolean get() = sp.getBoolean("boot", true); set(v) = sp.edit().putBoolean("boot", v).apply()
+    var logSweepHits: Boolean get() = sp.getBoolean("logsweep", true); set(v) = sp.edit().putBoolean("logsweep", v).apply()
     var sweep: String get() = str("sweep", "7E0:0300-04FF, 7E0:0500-05FF"); set(v) = put("sweep", v)
 
     // --- vehicle (OBDb repo) and HA naming -------------------------------------------
@@ -103,6 +104,7 @@ class Prefs(private val ctx: Context) {
         fuelType = if (diesel) uk.co.ashunt.carmonitor.core.FuelType.DIESEL else uk.co.ashunt.carmonitor.core.FuelType.PETROL,
         tankLitres = tankLitres.takeIf { it > 0 },
         fuelState = fuelState,
+        logSweepHits = logSweepHits,
     )
 
     /** "7E0:0300-04FF, 7E0:F400-F4FF" -> ranges. Invalid entries are ignored. */
@@ -133,7 +135,10 @@ class Prefs(private val ctx: Context) {
      */
     fun library(): SignalSet {
         val obdb = ObdbClient(ctx)
-        val layers = mutableListOf(SignalSet.parse("SAEJ1979", asset("obdb/SAEJ1979.json")!!))
+        val layers = mutableListOf(
+            SignalSet.parse("SAEJ1979", asset("obdb/SAEJ1979.json")!!),
+            SignalSet.parse("fixes", asset("overlay/_fixes.json")!!),
+        )
         val v = vehicle()
         if (v != null) {
             if (!v.isMakeFallback) obdb.cachedSignalset(v.make.replace(' ', '-')).takeIf { it.exists() }

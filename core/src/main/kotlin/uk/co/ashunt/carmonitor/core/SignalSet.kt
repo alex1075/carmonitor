@@ -133,6 +133,11 @@ object Decoder {
         f.map?.let { m -> return m[raw.toString()]?.let { Decoded.Text(it) } ?: Decoded.Text(raw.toString()) }
         if (f.sign && f.len < 64 && (raw shr (f.len - 1)) and 1L == 1L) raw -= (1L shl f.len)
         val v = raw * f.mul / f.div + f.add
+        // Reject values outside the signal's own declared range (catches data bugs such as an
+        // OBDb entry with a wrong offset): 1 % margin for rounding.
+        val span = ((f.max ?: 0.0) - (f.min ?: 0.0)).let { if (it > 0) it * 0.01 else 1e-6 }
+        if (f.min != null && v < f.min - span) return null
+        if (f.max != null && v > f.max + span) return null
         if (f.nullMax != null && v >= f.nullMax - 1e-9) return null
         if (f.nullMin != null && v <= f.nullMin + 1e-9) return null
         return Decoded.Num(v)

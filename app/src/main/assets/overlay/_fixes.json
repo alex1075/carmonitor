@@ -1,0 +1,29 @@
+{
+ "_about": "Corrections to upstream OBDb data, applied for every vehicle (later layers override by header+request). Report each upstream.",
+ "commands": [
+  {
+   "hdr": "7E0",
+   "rax": "7E8",
+   "cmd": {
+    "01": "5D"
+   },
+   "freq": 5,
+   "note": "OBDb SAEJ1979 has add -38665; SAE J1979 PID 5D is (256A+B)/128 - 210.",
+   "signals": [
+    {
+     "id": "FUEL_TIMING",
+     "name": "Fuel injection timing",
+     "path": "Engine",
+     "fmt": {
+      "len": 16,
+      "min": -210,
+      "max": 301.992,
+      "div": 128,
+      "add": -210,
+      "unit": "degrees"
+     }
+    }
+   ]
+  }
+ ]
+}

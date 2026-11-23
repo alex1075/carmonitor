@@ -22,6 +22,9 @@ data class LoggerConfig(
     val longRunLPer100: Double? = null,
     /** FuelTracker.state() from the previous drive (fill-to-fill baseline etc.). */
     val fuelState: Map<String, Any?>? = null,
+    /** Poll the discovery sweep's unidentified DIDs and log them raw (CSV + diagnostic sensors). */
+    val logSweepHits: Boolean = true,
+    val cylinders: Int = 4,
 )
 
 /** Rows for the per-drive CSV: ts_ms, key, signal, value, raw. */
@@ -43,7 +46,26 @@ class LoggerEngine(
     private val sleep: (Long) -> Unit = { Thread.sleep(it) },
     private val log: (String) -> Unit = {},
 ) {
-    private val polled: List<Command> = set.forYear(profile.modelYear).filter { profile.supported(it.key) }
+    private val polled: List<Command> = buildPolled(set)
+
+    private fun buildPolled(set: SignalSet): List<Command> {
+        val known = set.forYear(profile.modelYear, includeDebug = true).filter { profile.supported(it.key) }
+        if (!cfg.logSweepHits) return known
+        val knownKeys = known.map { it.key }.toSet()
+        // Sweep hits that no signalset describes: poll as raw candidates so drives can identify them.
+        val sweep = ArrayList<Command>()
+        for (h in profile.sweepHits) {
+            if (h.key in knownKeys) continue
+            val parts = h.key.split(':')
+            if (parts.size != 2) continue
+            val hdr = parts[0]; val req = parts[1]
+            if (!req.startsWith("22") || req.length != 6) continue
+            sweep += Command(hdr, Elm327.defaultRx(hdr), "22", req.substring(2), freq = 10.0, filter = null, debug = true,
+                validated = false, source = "sweep",
+                signals = listOf(Signal("SWEEP_${hdr}_${req.substring(2)}", "Sweep ${h.key}", "Sweep", Fmt(len = 16))))
+        }
+        return known + sweep
+    }
     private val nextDue = HashMap<String, Long>()
     val values = LinkedHashMap<String, Pair<Decoded, Long>>()   // signal id -> value, ts
     private val lastPub = HashMap<String, Pair<String, Long>>()
@@ -58,7 +80,7 @@ class LoggerEngine(
     private var lastGoodReply = now()
     private var lastDtc = 0L
     var regenActive = false; private set
-    val fuel = FuelTracker(cfg.fuelType, cfg.tankLitres, cfg.longRunLPer100).also { f -> cfg.fuelState?.let { f.restore(it) } }
+    val fuel = FuelTracker(cfg.fuelType, cfg.tankLitres, cfg.longRunLPer100, cfg.cylinders).also { f -> cfg.fuelState?.let { f.restore(it) } }
     private val fuelVal: (String) -> Double? = { id -> if (isValidatedSignal(id)) num(id) else null }
 
     val pollCount get() = polled.size
@@ -270,7 +292,7 @@ class LoggerEngine(
         else "%.3f".format(java.util.Locale.ROOT, v).trimEnd('0').trimEnd('.')
 }
 
-private val FUEL_INPUTS = setOf("FUEL_RATE", "FUEL_RATE_ALT", "VFUEL_RATE", "CX5_ENG_FUEL_RATE", "MAF", "MAFA", "FLI", "CX5_FLI", "CX5_FLV")
+private val FUEL_INPUTS = setOf("MZD_INJ_QTY", "INJ_QTY", "FUEL_RATE", "FUEL_RATE_ALT", "VFUEL_RATE", "CX5_ENG_FUEL_RATE", "MAF", "MAFA", "FLI", "CX5_FLI", "CX5_FLV")
 
 private val POST_DPF_EGT = listOf("MZD_EGT_POST_DPF", "DPF1_OUTT", "CX5_EXH_GAS_T_2")
 

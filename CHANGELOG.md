@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0] - 2026-11-23
+### Added
+- Discovery also probes OBDb's "debug" commands (159 on the CX-5, e.g. EGT 1/2 at 2203F4/F5); existing profiles
+  re-discover once automatically, keeping their sweep hits.
+- Unidentified sweep hits are polled and logged raw (CSV + diagnostic sensors) to help identify them; toggle in settings.
+- Fuel rate from injection quantity (mm³/stroke × cylinders × rpm/2) once a quantity PID is validated.
+- CX-5 overlay candidates from the first sweep: injection quantity (22044B), EGT 3 (2203F6),
+  per-cylinder injector corrections (220436–0439).
+### Fixed
+- Values outside a signal's declared min/max are rejected, e.g. OBDb's FUEL_TIMING (015D) had offset −38665 instead
+  of −210 (also corrected in a global fixes overlay).
+- Discovery skips commands whose service isn't on the read-only allowlist (OBDb debug entries using KWP service 21)
+  instead of stopping.
+
 ## [0.4.0] - 2026-11-23
 ### Added
 - **Fuel, economy and range**: fuel rate (L/h), instant and trip economy (L/100 km and UK mpg), trip fuel used,

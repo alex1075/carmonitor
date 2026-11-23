@@ -132,6 +132,10 @@ class ObdService : Service() {
                     if (profile != null && profile.results.values.none { it.support.name == "SUPPORTED" }) {
                         Status.log("saved profile has no supported signals, re-discovering"); profile = null
                     }
+                    val oldSweep = profile?.sweepHits ?: prefs.profile()?.sweepHits ?: emptyList()
+                    if (profile != null && profile.isStale) {
+                        Status.log("profile from an older version, re-discovering (sweep hits kept)"); profile = null
+                    }
                     if (want != null || profile == null) {
                         discoverRequested = null
                         val sweep = if (want == true) prefs.sweepRanges() else emptyList()
@@ -148,6 +152,7 @@ class ObdService : Service() {
                             Status.log("no ECU replies; profile NOT saved; retrying")
                             sleep(30_000); continue
                         }
+                        if (profile.sweepHits.isEmpty() && oldSweep.isNotEmpty()) profile = profile.copy(sweepHits = oldSweep)
                         prefs.profileFile.writeText(profile.toJson())
                     }
                     val csvFile = File(prefs.logDir, "drive-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date()) + ".csv")

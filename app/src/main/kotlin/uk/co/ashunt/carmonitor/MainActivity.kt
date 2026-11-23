@@ -61,6 +61,7 @@ class MainActivity : Activity() {
     private lateinit var all: CheckBox
     private lateinit var cand: CheckBox
     private lateinit var boot: CheckBox
+    private lateinit var logSweep: CheckBox
     private lateinit var status: TextView
     private lateinit var vehicleLabel: TextView
     private lateinit var topicBase: EditText
@@ -149,6 +150,7 @@ class MainActivity : Activity() {
         all = CheckBox(this).apply { text = "Publish every supported signal to HA"; isChecked = prefs.publishAll }; col.addView(all)
         cand = CheckBox(this).apply { text = "Publish unvalidated diesel candidates (raw)"; isChecked = prefs.publishCandidates }; col.addView(cand)
         boot = CheckBox(this).apply { text = "Start on boot"; isChecked = prefs.autoStart }; col.addView(boot)
+        logSweep = CheckBox(this).apply { text = "Log unidentified sweep hits (raw, for PID hunting)"; isChecked = prefs.logSweepHits }; col.addView(logSweep)
         col.addView(row(button("Save settings") { save(); toast("Saved. Stop/Start to apply.") }))
 
         col.addView(label("Live"))
@@ -316,6 +318,7 @@ class MainActivity : Activity() {
         prefs.publishAll = all.isChecked
         prefs.publishCandidates = cand.isChecked
         prefs.autoStart = boot.isChecked
+        prefs.logSweepHits = logSweep.isChecked
         prefs.btAutostart = btAuto.isChecked
         prefs.tankLitres = tank.text.toString().toDoubleOrNull() ?: 0.0
         prefs.diesel = dieselBox.isChecked

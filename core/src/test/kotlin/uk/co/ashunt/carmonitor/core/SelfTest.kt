@@ -104,6 +104,7 @@ object SelfTest {
         return SignalSet.merge(
             "cx5-diesel",
             SignalSet.parse("SAEJ1979", File(a, "obdb/SAEJ1979.json").readText()),
+            SignalSet.parse("fixes", File(a, "overlay/_fixes.json").readText()),
             SignalSet.parse("Mazda-CX-5", File(a, "obdb/Mazda-CX-5.json").readText()),
             SignalSet.parse("overlay", File(a, "overlay/Mazda-CX-5.json").readText()),
         )
@@ -180,6 +181,8 @@ object SelfTest {
         eq(prof.sweepHits.map { it.key }, listOf("7E0:220C42"), "sweep hit")
         check(fake.sent.none { it.startsWith("2E") || it.startsWith("31") || it.startsWith("10") || it == "04" },
             "discovery sent nothing but reads")
+        check(fake.sent.none { !RequestGuard.isAllowed(it) }, "discovery skipped non-allowlisted services instead of sending them")
+        check(prof.results.values.any { it.note?.contains("not allowed") == true }, "skipped services recorded in the profile")
         val again = VehicleProfile.fromJson(prof.toJson())
         eq(again.results.size, prof.results.size, "profile round-trip")
         eq(again.sweepHits, prof.sweepHits, "sweep hits round-trip")
@@ -373,6 +376,29 @@ object SelfTest {
         check(out.none { it.first == T.fuelRate }, "no fake fuel rate published")
     }
 
+    fun realCar(lib: SignalSet) {
+        // Data from the 2026-11-23 CX-5 idle session
+        val (ftc, ft) = lib.signal("FUEL_TIMING")!!
+        eq(ftc.source, "fixes", "015D taken from the fixes overlay")
+        val v = (Decoder.decode(ft, "6801".hexToBytes()) as Decoded.Num).v
+        check(kotlin.math.abs(v - (-1.99)) < 0.05, "fuel timing 0x6801 = -1.99 deg: $v")
+        val bogus = Signal("X", "x", null, Fmt(len = 16, div = 128.0, add = -38665.0, min = -210.0, max = 302.0))
+        eq(Decoder.decode(bogus, "6801".hexToBytes()), null, "out-of-range value rejected")
+        val inj = FuelTracker(FuelType.DIESEL, 58.0, null).also { it.update(0, { k -> mapOf("MZD_INJ_QTY" to 6.1, "RPM" to 798.0)[k] }, 0.0) }
+        check(inj.source == FuelSource.INJECTION_QUANTITY && inj.rateLh!! in 0.55..0.62, "6.1 mm3 @ 798 rpm = 0.58 L/h: ${inj.rateLh}")
+        check(lib.forYear(2017, includeDebug = true).any { it.key == "7E0:2203F4" }, "debug EGT command probed")
+        check(lib.commands.any { it.service == "21" }, "library contains a non-allowlisted service (21)")
+        // sweep hits become raw candidates in the logger
+        val prof = VehicleProfile("V", 2017, "x", 0, setOf("0C"), mapOf("7E0:010C" to ProbeResult("7E0:010C", Support.SUPPORTED)),
+            listOf(ProbeResult("7E0:22044B", Support.SUPPORTED, "003D"), ProbeResult("7E0:220594", Support.SUPPORTED, "46F3")))
+        val out = mutableListOf<String>()
+        val eng = LoggerEngine(Elm327(FakeCx5()), lib, prof, { t, _, _ -> out += t }, TopicScheme.forVehicle(null), LoggerConfig())
+        eng.announce()
+        check(out.any { it.contains("_raw_7e0_220594") }, "unidentified sweep hit gets a raw diagnostic sensor")
+        check(out.any { it.contains("_raw_7e0_22044b") }, "overlay candidate 044B announced as raw")
+        eq(eng.pollCount, 3, "RPM + overlay 044B + sweep 0594 polled")
+    }
+
     fun json() {
         val s = """{"a":[1,2.5,-3e2,"x\"yé"],"b":{"c":null,"d":true}}"""
         val o = MiniJson.obj(s)
@@ -393,6 +419,7 @@ object SelfTest {
         catalog()
         haRest()
         fuel(lib, prof)
+        realCar(lib)
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,
