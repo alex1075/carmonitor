@@ -1,10 +1,8 @@
-# Mazda CX-5 2.2 SkyActiv-D (KF)
+# Example: Mazda CX-5 2.2 SkyActiv-D (KF)
 
-The project started as a DPF/EGR health monitor for this car, replacing a Pi Zero logger.
-
-- **Preset:** choosing `Mazda-CX-5` keeps the Pi-logger layout: topics `mazda/cx5/{rpm,speed_kmh,fuel_pct,soot_gL,
-  pm_acc_dsd_gL,egt_post_dpf_c,dist_since_regen,oil_dilution,trip_active,trip_distance_mi,trip/last_*,dtc/*}`, device
-  `mazda_cx5`, and miles for distances. Your existing YAML package works unchanged.
+The car CarMonitor was first tested on. Nothing here is special-cased in the app: the CX-5 is handled like any other OBDb
+vehicle (`car/mazda_cx_5` topics by default). This page is a worked example of what a manufacturer's diesel exposes, and of
+using sweeps and overlays to find what OBDb doesn't document.
 - **Model year:** EU CX-5 VINs (`JMZ…`) carry no year code, so set it in Settings. Some OBDb CX-5 commands are year-filtered.
 - **OBDb CX-5 coverage:** useful for EGT 1/2 (`2203F4/F5`), exhaust differential pressure (`2203DB`, raw volts), oil
   dilution events (`220435`) and EGR. It has **no soot load, regen status or distance-since-regen**, and much of the set is

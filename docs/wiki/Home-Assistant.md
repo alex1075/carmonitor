@@ -22,8 +22,8 @@ Signal IDs are OBDb's (for example `RPM`, `VSS`, `ECT`, `DPF1_DP`). Their names 
 
 ## Entities
 Everything is announced through MQTT discovery under one device (`carmonitor_<slug>`):
-- signals OBDb marks with a `suggestedMetric`, plus core J1979 ones the car answers (or every supported signal, with
-  *Publish every supported signal*)
+- every supported signal the car answers. OBDb's curated ones (`suggestedMetric`) and core J1979 values are the main
+  sensors; the rest are there too, so an archive of HA's history (for example InfluxDB) has everything
 - trip, distance and fault entities. Trip summaries and DTCs are retained and stay visible while the car is off.
 - live sensors use `expire_after`, so they show *unavailable* rather than a stale number when the car is off.
 
@@ -44,8 +44,11 @@ How it's worked out, best first:
 3. **Fuel level**: the level is median-smoothed (fuel sloshes) and gives litres per trip plus a *fill-to-fill* average
    that resets when it sees a refuel (> 4 L jump), even one made while parked. There's no instant economy in this mode.
 
-Set the **tank size** in the app (CX-5: 56 L 2WD / 58 L AWD), or "remaining" and "range" can't be computed unless the car
+Set the **tank size** in the app (Car tab, from the handbook), or "remaining" and "range" can't be computed unless the car
 reports litres itself.
+
+Everything is sent in metric. Choose km/h or mph, litres or gallons and °C or °F in the app for its own display; HA converts
+with its own unit settings.
 
 ## Example automations
 
@@ -76,7 +79,3 @@ actions:
 ```
 
 Entity ids depend on your device name. Check them under the device page.
-
-## Legacy CX-5 layout
-Picking `Mazda-CX-5` applies the original Pi-logger layout (`mazda/cx5/*`, miles, device `mazda_cx5`, no discovery for
-those entities because they live in YAML). See [[Mazda CX-5 2.2 SkyActiv-D|Mazda-CX-5-SkyActiv-D]].
