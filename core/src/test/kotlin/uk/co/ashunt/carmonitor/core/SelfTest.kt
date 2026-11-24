@@ -445,6 +445,27 @@ object SelfTest {
         eq(Units.fmt(null), "—", "missing value")
     }
 
+    fun gps() {
+        // Edinburgh Waverley -> Haymarket is ~1.9 km as the crow flies
+        val a = Fix(0, 55.9521, -3.1893); val b = Fix(1, 55.9458, -3.2184)
+        check(Geo.haversineKm(a, b) in 1.8..2.0, "haversine Waverley-Haymarket ~1.9 km: ${Geo.haversineKm(a, b)}")
+        val odo = GpsOdometer()
+        val t0 = 1_000_000L
+        odo.add(Fix(t0, 55.9521, -3.1893, accM = 5.0))
+        odo.add(Fix(t0 + 1000, 55.95211, -3.18931, accM = 5.0))                 // ~1 m jitter: ignored
+        odo.add(Fix(t0 + 2000, 56.5, -3.0, accM = 5.0))                          // 60 km in 1 s: rejected
+        odo.add(Fix(t0 + 3000, 55.9521, -3.1893, accM = 80.0))                  // poor accuracy: rejected
+        odo.add(Fix(t0 + 180_000, 55.9458, -3.2184, accM = 5.0))                // 1.9 km in 3 min: counted
+        check(odo.km in 1.8..2.0, "odometer counts only the real move: ${odo.km}")
+        val sw = java.io.StringWriter()
+        GpxWriter(sw, "Drive & test").apply { point(Fix(0, 55.95, -3.19, altM = 50.0)); close() }
+        check(sw.toString().contains("<trkpt lat=\"55.9500000\" lon=\"-3.1900000\"><ele>50.0</ele><time>1970-01-01T00:00:00Z</time></trkpt>") &&
+            sw.toString().contains("Drive &amp; test") && sw.toString().trimEnd().endsWith("</gpx>"), "GPX track")
+        val ents = GpsHa.entities(TopicScheme.forVehicle(null))
+        check(ents[0].first.startsWith("homeassistant/device_tracker/") && ents[0].second.contains("\"source_type\":\"gps\""), "HA device tracker")
+        check(GpsHa.locationPayload(Fix(0, 55.95, -3.19, accM = 4.0)).contains("\"latitude\":55.95"), "location payload")
+    }
+
     fun fuelType() {
         eq(FuelTypes.fromJ1979("DSL"), FuelType.DIESEL, "0151 DSL = diesel (real CX-5)")
         eq(FuelTypes.fromJ1979("GAS"), FuelType.PETROL, "0151 GAS = petrol")
@@ -476,6 +497,7 @@ object SelfTest {
         pollTiers(lib)
         sweepStore()
         units()
+        gps()
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,

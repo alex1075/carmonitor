@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.1] - 2026-11-24
+### Added
+- **GPS (optional, off by default)**, read only while logging:
+  - *Record GPS track*: position, speed and accuracy rows in the drive CSV, plus a `.gpx` track per drive (export it from
+    Home Assistant → Data & logs).
+  - *Send location to HA*: a `device_tracker` for the car (last position is retained, so HA shows where it's parked) and
+    a *GPS trip distance* sensor.
+  - A one-time warning before switching either on: don't use the app while driving; use at your own discretion.
+- Location permission is while-in-use only. If the logger starts from the background (car Bluetooth) Android may refuse
+  location for that drive; the log says so.
+
 ## [0.6.0] - 2026-11-24
 ### Changed
 - **New Material 3 interface** (Jetpack Compose): Drive, Car and Home Assistant tabs, cards, switches and a Start/Stop button.

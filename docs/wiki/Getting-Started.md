@@ -51,6 +51,16 @@ Engine on → **Car → Discover**. It takes 1–3 minutes on a good adapter, an
 *Settings → Devices → MQTT*. Export the profile (**Export profile**) to see what the car answered,
 and to keep a copy: **Import profile** restores it after a reinstall without discovering again.
 
-## 7. Make it yours
+## 7. GPS (optional)
+**Home Assistant → Recording & location** has two switches, both off by default:
+- **Record GPS track:** adds position rows to each drive's CSV and saves a `.gpx` track (Data & logs → *Export last GPS track*).
+- **Send location to HA:** a *Location* tracker on the car's device (it keeps the last position, so it shows where the
+  car is parked) and a *GPS trip distance* sensor.
+
+The first time, the app asks you to confirm: don't use the app while driving, and you use location at your own discretion.
+It then asks for location permission ("while using the app"). Location is read only while the logger runs. If the logger is
+started by the car's Bluetooth while the app is closed, Android may block GPS for that drive (the app log says so).
+
+## 8. Make it yours
 **Home Assistant → Appearance** switches between the *Extended* and *Compact* layouts and the System/Light/Dark theme.
 **Units** switches km/h ↔ mph, litres ↔ UK gallons (economy in mpg) and °C ↔ °F. Units only affect the phone's display.

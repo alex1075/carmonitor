@@ -76,6 +76,14 @@ class Prefs(private val ctx: Context) {
     var fahrenheit: Boolean get() = sp.getBoolean("u_f", false); set(v) = sp.edit().putBoolean("u_f", v).apply()
     fun units() = uk.co.ashunt.carmonitor.core.Units(mph, gallons, fahrenheit)
 
+    // --- GPS (both off by default; first switch-on shows a warning) ------------------
+    /** GPS rows in the drive CSV plus a .gpx track per session. */
+    var gpsRecord: Boolean get() = sp.getBoolean("gps_rec", false); set(v) = sp.edit().putBoolean("gps_rec", v).apply()
+    /** Car location tracker + GPS trip distance in HA. */
+    var gpsToHa: Boolean get() = sp.getBoolean("gps_ha", false); set(v) = sp.edit().putBoolean("gps_ha", v).apply()
+    var gpsWarned: Boolean get() = sp.getBoolean("gps_warned", false); set(v) = sp.edit().putBoolean("gps_warned", v).apply()
+    val gpsWanted get() = gpsRecord || gpsToHa
+
     var vehicleRepo: String get() = str("repo", ""); set(v) = put("repo", v)
     var signalsetFile: String get() = str("ssfile", "default.json"); set(v) = put("ssfile", v)
     var topicBase: String get() = str("tbase", TopicScheme.forVehicle(null).base); set(v) = put("tbase", v)
