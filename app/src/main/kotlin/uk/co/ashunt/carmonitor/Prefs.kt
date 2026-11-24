@@ -144,6 +144,18 @@ class Prefs(private val ctx: Context) {
 
     // --- files ------------------------------------------------------------------
     val profileFile get() = File(ctx.filesDir, "profile.json")
+    /** Permanent per-car sweep results (see SweepHits): never deleted by vehicle switches or re-discovery. */
+    private fun sweepFile(vin: String) = File(File(ctx.filesDir, "sweep").apply { mkdirs() },
+        vin.replace(Regex("[^A-Za-z0-9]"), "_") + ".json")
+    fun storedSweep(vin: String): List<uk.co.ashunt.carmonitor.core.ProbeResult> =
+        sweepFile(vin).takeIf { it.exists() }?.let { try { uk.co.ashunt.carmonitor.core.SweepHits.fromJson(it.readText()) } catch (_: Exception) { null } }
+            ?: emptyList()
+    /** Add [hits] to this car's stored sweep results; returns the merged set. */
+    fun addSweep(vin: String, hits: List<uk.co.ashunt.carmonitor.core.ProbeResult>): List<uk.co.ashunt.carmonitor.core.ProbeResult> {
+        val merged = uk.co.ashunt.carmonitor.core.SweepHits.merge(storedSweep(vin), hits)
+        sweepFile(vin).writeText(uk.co.ashunt.carmonitor.core.SweepHits.toJson(vin, merged))
+        return merged
+    }
     val overlayFile get() = File(ctx.filesDir, "overlay.json")      // user-imported overlay
     val logDir get() = File(ctx.filesDir, "drives").apply { mkdirs() }
 

@@ -4,6 +4,23 @@ enum class Support { SUPPORTED, UNSUPPORTED, NO_RESPONSE, ERROR }
 
 data class ProbeResult(val key: String, val support: Support, val rawHex: String? = null, val note: String? = null)
 
+/**
+ * Sweep results are expensive (minutes of probing) and belong to the car, not to a profile: they are
+ * stored per VIN, only ever added to, and merged into every profile for that car.
+ */
+object SweepHits {
+    /** Union by key; later lists win for the raw sample. Sorted for stable files. */
+    fun merge(vararg lists: List<ProbeResult>): List<ProbeResult> {
+        val m = LinkedHashMap<String, ProbeResult>()
+        for (l in lists) for (h in l) m[h.key] = h.copy(support = Support.SUPPORTED, note = "sweep")
+        return m.values.sortedBy { it.key }
+    }
+    fun toJson(vin: String, hits: List<ProbeResult>): String = MiniJson.write(linkedMapOf(
+        "vin" to vin, "sweepHits" to hits.map { linkedMapOf("key" to it.key, "raw" to it.rawHex) }), pretty = true)
+    fun fromJson(json: String): List<ProbeResult> = MiniJson.obj(json)["sweepHits"].asList().map { it.asMap() }
+        .map { ProbeResult(it["key"].toString(), Support.SUPPORTED, it["raw"] as? String, "sweep") }
+}
+
 /** What a given car answered. Saved on the phone; the logger polls only SUPPORTED keys. */
 data class VehicleProfile(
     val vin: String?,

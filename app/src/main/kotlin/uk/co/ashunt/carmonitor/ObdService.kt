@@ -13,6 +13,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.os.IBinder
 import android.os.PowerManager
+import uk.co.ashunt.carmonitor.core.SweepHits
 import uk.co.ashunt.carmonitor.core.CsvSink
 import uk.co.ashunt.carmonitor.core.Decoded
 import uk.co.ashunt.carmonitor.core.DiscoverOptions
@@ -193,8 +194,17 @@ class ObdService : Service() {
                             Status.log("no ECU replies; profile NOT saved; retrying")
                             sleep(30_000); continue
                         }
-                        if (profile.sweepHits.isEmpty() && oldSweep.isNotEmpty()) profile = profile.copy(sweepHits = oldSweep)
+                        if (oldSweep.isNotEmpty()) profile = profile.copy(sweepHits = SweepHits.merge(oldSweep, profile.sweepHits))
                         prefs.profileFile.writeText(profile.toJson())
+                    }
+                    // Merge this car's permanent sweep store both ways, so sweep results survive anything.
+                    val vin = profile.vin
+                    if (!vin.isNullOrBlank()) {
+                        val merged = prefs.addSweep(vin, profile.sweepHits)
+                        if (merged.size != profile.sweepHits.size) {
+                            Status.log("restored ${merged.size - profile.sweepHits.size} sweep hits for $vin (${merged.size} total)")
+                            profile = profile.copy(sweepHits = merged); prefs.profileFile.writeText(profile.toJson())
+                        }
                     }
                     val csvFile = File(prefs.logDir, "drive-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date()) + ".csv")
                     csvFile.bufferedWriter().use { w ->

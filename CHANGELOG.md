@@ -5,6 +5,11 @@
 - "Legacy CX-5 Pi-logger topics": every car, the CX-5 included, uses Home Assistant discovery (trip, faults, regen).
 - "Force diesel": the fuel type comes from the car (J1979 0151).
 - "Publish every supported signal": always on, so the HA long-term archive gets everything.
+### Added
+- **Sweep results are permanent per car (VIN)**: stored separately from the profile, only ever added to, and merged
+  into every profile for that car. Vehicle switches, re-discovery and format upgrades can no longer lose them.
+- **Import profile**: restores an exported profile (no discovery needed) and always keeps its sweep hits, even from
+  old-format exports.
 ### Fixed
 - After the car was switched off, the app could keep re-dialling the dongle every 30 s instead of parking, when
   the "no ECU replies" watchdog released the dongle before the car's Bluetooth dropped (seen 08:03-08:15 today).
