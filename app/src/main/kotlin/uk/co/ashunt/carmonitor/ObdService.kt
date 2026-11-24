@@ -61,6 +61,8 @@ class ObdService : Service() {
         const val ACTION_DISCOVER = "discover"
         const val ACTION_STOP = "stop"
         const val ACTION_CAR_OFF = "car_off"
+        /** Vehicle/topics changed in the UI: end the current session and start again with the new settings. */
+        const val ACTION_RELOAD = "reload"
         private const val CAR_OFF_GRACE_MS = 10_000L
         const val EXTRA_SWEEP = "sweep"
         private const val CHANNEL = "obd"
@@ -72,6 +74,7 @@ class ObdService : Service() {
     }
 
     @Volatile private var running = false
+    @Volatile private var reloadRequested = false
     @Volatile private var discoverRequested: Boolean? = null   // null = no, false = quick, true = with sweep
     private var worker: Thread? = null
     private var wake: PowerManager.WakeLock? = null
@@ -86,6 +89,10 @@ class ObdService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_CAR_OFF) {
             if (worker?.isAlive == true) carOffAt = System.currentTimeMillis()
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_RELOAD) {
+            if (worker?.isAlive == true) { reloadRequested = true; poke() }
             return START_STICKY
         }
         if (intent?.action == ACTION_STOP) {
@@ -115,7 +122,7 @@ class ObdService : Service() {
         super.onDestroy()
     }
 
-    private fun loop() = try { loopInner() } catch (e: Throwable) {
+    private fun loop() = try { while (running) loopInner() } catch (e: Throwable) {
         Status.log("worker stopped: $e"); Status.state = "error: ${e.javaClass.simpleName}"
     }
 
@@ -125,6 +132,8 @@ class ObdService : Service() {
         val mqtt = prefs.uplink(scheme.status) { Status.log(it) }
         try {
             while (running) {
+                // Settings changed: return so loop() rebuilds prefs, topics and the MQTT link.
+                if (reloadRequested) { reloadRequested = false; Status.log("vehicle/settings changed, restarting session"); return }
                 val addr = prefs.deviceAddress
                 if (addr == null) { setState("no dongle selected", ""); sleep(5000); continue }
                 if (parked && prefs.btAutostart && prefs.carDevices.isNotEmpty()) {
@@ -167,7 +176,8 @@ class ObdService : Service() {
                         profile = Discoverer(elm, lib, DiscoverOptions(yearOverride = prefs.modelYear, sweep = sweep,
                             vehicleRepo = prefs.vehicleRepo.ifBlank { null }, signalsetFile = prefs.signalsetFile),
                             progress = { d, t, l -> Status.detail = "$d / $t  $l"; if (d % 25 == 0) updateNote("Discovering $d/$t") },
-                            cancelled = { !running }).run()
+                            cancelled = { !running || reloadRequested }).run()
+                        if (reloadRequested) continue        // half a discovery for the old car: don't save it
                         val n = profile.results.values.count { it.support.name == "SUPPORTED" }
                         Status.log("discovery: $n supported, ${profile.sweepHits.size} sweep hits, VIN ${profile.vin}")
                         if (n == 0) {
@@ -185,6 +195,7 @@ class ObdService : Service() {
                         val engine = LoggerEngine(elm, lib, profile, mqtt, scheme, prefs.loggerConfig(),
                             csv = csvRow(w), log = { Status.log(it) })
                         setState("logging", "${engine.pollCount} commands")
+                        engine.tierCounts.let { (f, m, s) -> Status.log("poll tiers: $f fast (3 s), $m medium (15 s), $s slow (60 s)") }
                         updateNote("Logging ${engine.pollCount} signals")
                         var lastUi = 0L
                         var lastFuelSave = System.currentTimeMillis()
@@ -214,7 +225,7 @@ class ObdService : Service() {
                             // silence while the car is still connected just reconnects.
                             if (carGone && prefs.carDevices.isNotEmpty() && prefs.btAutostart) parked = true
                             pokedFlag = false
-                            !running || discoverRequested != null || restart
+                            !running || discoverRequested != null || restart || reloadRequested
                         }) } finally { prefs.fuelState = engine.fuel.state() }
                     }
                 } catch (e: IOException) {

@@ -114,7 +114,16 @@ class MainActivity : Activity() {
         vehicleLabel = TextView(this); col.addView(vehicleLabel)
         col.addView(row(
             button("Choose vehicle…") { save(); chooseVehicle() },
-            button("Generic OBD-II only") { prefs.selectVehicle(null, "default.json"); refreshVehicle(); toast("Generic J1979 PIDs only. Run Discover.") },
+            button("Generic OBD-II only") {
+                AlertDialog.Builder(this).setTitle("Switch to generic OBD-II?")
+                    .setMessage("Only standard J1979 PIDs: no ${prefs.vehicle()?.label ?: "make-specific"} signals (DPF, EGT, oil…), " +
+                        "and Home Assistant gets a separate \"Car\" device. Your current car's profile and fuel settings are kept " +
+                        "and come back when you choose it again.")
+                    .setPositiveButton("Switch to generic") { _, _ ->
+                        prefs.selectVehicle(null, "default.json"); refreshVehicle(); vehicleChanged()
+                    }
+                    .setNegativeButton("Cancel", null).show()
+            },
         ))
         col.addView(label("Fuel tank size in litres (from the handbook; needed for remaining fuel and range)"))
         tank = edit(if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else "", "e.g. 56", InputType.TYPE_CLASS_NUMBER); col.addView(tank)
@@ -327,6 +336,11 @@ class MainActivity : Activity() {
         prefs.legacyTopics = legacy.isChecked
     }
 
+    /** Tell a running logger to restart with the new vehicle (no-op if it isn't running). */
+    private fun vehicleChanged() {
+        startService(Intent(this, ObdService::class.java).setAction(ObdService.ACTION_RELOAD))
+    }
+
     private fun refreshVehicle() {
         val v = prefs.vehicle()
         vehicleLabel.text = (v?.label ?: "Generic OBD-II (SAE J1979 only)") +
@@ -383,9 +397,12 @@ class MainActivity : Activity() {
                 ObdbCatalog.makeFallbackFor(v, all)?.let { mk -> try { client.download(mk.repo, year) } catch (_: Exception) {} }
                 runOnUiThread {
                     busy.dismiss()
+                    val known = prefs.hasSavedProfile(v, file)
                     prefs.selectVehicle(v, file)
                     refreshVehicle()
-                    toast("${v.label}: $file for $year. Topics: ${prefs.topicBase}. Run Discover with the engine on.")
+                    vehicleChanged()
+                    toast(if (known) "${v.label}: saved profile restored, no discovery needed. Topics: ${prefs.topicBase}"
+                          else "${v.label}: $file for $year. Topics: ${prefs.topicBase}. Discovery runs on the next connect.")
                 }
             } catch (e: Exception) {
                 runOnUiThread { busy.dismiss(); toast("Download failed: ${e.message}") }
