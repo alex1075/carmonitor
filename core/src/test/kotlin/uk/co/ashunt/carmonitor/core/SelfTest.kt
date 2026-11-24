@@ -424,6 +424,16 @@ object SelfTest {
         check(f in 1..10 && m > 0 && s > 0, "tiers fast=$f medium=$m slow=$s")
     }
 
+    fun sweepStore() {
+        val a = listOf(ProbeResult("7E0:220308", Support.SUPPORTED, "037A"), ProbeResult("7E0:22044B", Support.SUPPORTED, "003D"))
+        val b = listOf(ProbeResult("7E0:22044B", Support.SUPPORTED, "0042"), ProbeResult("7E0:220594", Support.SUPPORTED, "46F3"))
+        val m = SweepHits.merge(a, b)
+        eq(m.map { it.key }, listOf("7E0:220308", "7E0:22044B", "7E0:220594"), "sweep union, sorted")
+        eq(m.first { it.key == "7E0:22044B" }.rawHex, "0042", "newer raw wins")
+        eq(SweepHits.fromJson(SweepHits.toJson("VIN", m)), m, "sweep store round-trip")
+        eq(SweepHits.merge(m, emptyList()).size, 3, "an empty new sweep never erases stored hits")
+    }
+
     fun fuelType() {
         eq(FuelTypes.fromJ1979("DSL"), FuelType.DIESEL, "0151 DSL = diesel (real CX-5)")
         eq(FuelTypes.fromJ1979("GAS"), FuelType.PETROL, "0151 GAS = petrol")
@@ -453,6 +463,7 @@ object SelfTest {
         realCar(lib)
         fuelType()
         pollTiers(lib)
+        sweepStore()
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,

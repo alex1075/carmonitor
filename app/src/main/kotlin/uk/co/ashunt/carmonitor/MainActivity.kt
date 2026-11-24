@@ -104,6 +104,7 @@ class MainActivity : Activity() {
         ))
         col.addView(row(
             button("Import overlay JSON") { importOverlay() },
+            button("Import profile") { importProfile() },
             button("Export app log") { exportLog() },
         ))
 
@@ -433,6 +434,13 @@ class MainActivity : Activity() {
             .setType(mime).putExtra(Intent.EXTRA_TITLE, name), 10)
     }
 
+    /** Restore an exported profile: its sweep hits always go into the car's permanent store; a current-format
+     *  profile also becomes the active one, so no discovery is needed. */
+    private fun importProfile() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*"), 13)
+    }
+
     private fun importOverlay() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
             .setType("application/json"), 11)
@@ -446,6 +454,17 @@ class MainActivity : Activity() {
         try {
             when (requestCode) {
                 10 -> pendingExport?.let { f -> contentResolver.openOutputStream(uri)?.use { it.write(f.readBytes()) }; toast("Exported") }
+                13 -> {
+                    val text = contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: return
+                    val p = uk.co.ashunt.carmonitor.core.VehicleProfile.fromJson(text)
+                    val vin = p.vin?.takeIf { it.isNotBlank() } ?: throw IllegalArgumentException("profile has no VIN")
+                    val merged = prefs.addSweep(vin, p.sweepHits)
+                    val active = !p.isStale && p.results.values.any { it.support.name == "SUPPORTED" }
+                    if (active) prefs.profileFile.writeText(p.copy(sweepHits = merged).toJson())
+                    startService(Intent(this, ObdService::class.java).setAction(ObdService.ACTION_RELOAD))
+                    toast((if (active) "Profile imported (no discovery needed). " else "Old-format profile: sweep hits kept. ") +
+                        "$vin now has ${merged.size} sweep hits.")
+                }
                 11 -> {
                     val text = contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: return
                     uk.co.ashunt.carmonitor.core.SignalSet.parse("overlay", text)   // validate before saving
