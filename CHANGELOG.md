@@ -5,6 +5,9 @@
 - "Legacy CX-5 Pi-logger topics": every car, the CX-5 included, uses Home Assistant discovery (trip, faults, regen).
 - "Force diesel": the fuel type comes from the car (J1979 0151).
 - "Publish every supported signal": always on, so the HA long-term archive gets everything.
+### Fixed
+- After the car was switched off, the app could keep re-dialling the dongle every 30 s instead of parking, when
+  the "no ECU replies" watchdog released the dongle before the car's Bluetooth dropped (seen 08:03-08:15 today).
 ### Changed
 - No vehicle is pre-selected on a fresh install (no CX-5 default).
 - Re-picking a car the app already knows also restores its MQTT topics and HA device, so its sensors keep their IDs.
