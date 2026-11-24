@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.2] - 2026-11-24
+### Changed
+- **Much faster live values.** Speed, RPM, coolant and fuel rate now update every 0.5 s on the phone and in Android Auto
+  (was 3 s). Home Assistant gets at most one value a second per sensor, to keep its database and InfluxDB sensible.
+  - Several standard PIDs go out in one request (J1979 allows up to six), split back per PID.
+  - The adapter is told how many replies to expect, so it answers as soon as the ECU does instead of waiting out its
+    timeout. Only used for single-frame replies, and dropped per request (or for the adapter) if it misbehaves.
+  - Requests to the ECU the adapter is already addressed to go first, saving header-switch round trips.
+  - The fast group stretches itself if it would take more than half the adapter's time, so everything else still gets
+    polled. The log shows the measured poll rate once a minute.
+- An ECU that ignores extra PIDs in a request makes the app fall back to one PID per request for that session.
+- Android Auto refreshes every second; the phone dashboard twice a second.
+
 ## [0.7.1] - 2026-11-24
 ### Fixed
 - **Exhaust and DPF sensors flicking to unavailable in Home Assistant.** On a busy adapter the slow polling tier could be

@@ -13,6 +13,10 @@ class FakeCx5 : ElmLink {
     var maf = 7.0
     var o2 = 17.5
     var alive = true
+    /** ECU answers only the first PID of a multi-PID request (some do). */
+    var singlePidOnly = false
+    /** Adapter answers "?" to a response count (old clones). */
+    var rejectCounts = false
     val sent = mutableListOf<String>()
     private var hdr = "7E0"
     private var pending = ""
@@ -67,9 +71,17 @@ class FakeCx5 : ElmLink {
             c.startsWith("ATSH") -> { hdr = c.substring(4); "OK\r\r" }
             c == "ATRV" -> "14.1V\r\r"
             c.startsWith("AT") -> "OK\r\r"
+            rejectCounts && c.length % 2 == 1 -> "?\r\r"
             else -> {
+                val c = if (c.length % 2 == 1) c.dropLast(1) else c      // response count: just return sooner
                 val rx = Elm327.defaultRx(hdr)!!
                 val svc = c.substring(0, 2).toInt(16)
+                if (hdr == "7E0" && svc == 1 && c.length > 4) {
+                    val pids = c.substring(2).chunked(2).let { if (singlePidOnly) it.take(1) else it }
+                    val body = pids.flatMap { pid -> positive("01$pid")?.let { listOf(pid.toInt(16)) + it } ?: emptyList() }
+                    pending = if (body.isEmpty()) "NO DATA\r\r" else frames(rx, listOf(0x41) + body).joinToString("\r") + "\r\r"
+                    return
+                }
                 if (hdr != "7E0") "NO DATA\r\r"
                 else if (c in pendingOnce) { pendingOnce.remove(c); frames(rx, listOf(0x7F, svc, 0x78)).joinToString("\r") + "\r\r" }
                 else {
@@ -89,6 +101,13 @@ class FakeCx5 : ElmLink {
 }
 
 object SelfTest {
+    /** Did this line sent to the adapter ask for [req]? Ignores a response count and finds PIDs in multi-PID requests. */
+    private fun asks(line: String, req: String): Boolean {
+        if (line.startsWith("AT")) return false
+        val b = if (line.length % 2 == 1) line.dropLast(1) else line
+        if (b == req) return true
+        return req.length == 4 && req.startsWith("01") && b.startsWith("01") && b.substring(2).chunked(2).contains(req.substring(2))
+    }
     private var passed = 0
     private val failures = mutableListOf<String>()
     private fun check(cond: Boolean, msg: String) { if (cond) passed++ else failures += msg }
@@ -416,8 +435,8 @@ object SelfTest {
         fake.rpm = 1500.0
         fake.sent.clear()
         repeat(400) { eng.step(); now += 200 }          // ~200 ms per request, like a v1.5 clone
-        val rpm = fake.sent.count { it == "010C" }
-        val slow = fake.sent.count { it == "2203F4" }    // debug EGT DID: slow tier
+        val rpm = fake.sent.count { asks(it, "010C") }
+        val slow = fake.sent.count { asks(it, "2203F4") } // debug EGT DID
         check(rpm >= 4 * slow * 3, "RPM polled far more often than diagnostics: rpm=$rpm slow=$slow")
         check(slow in 1..4, "diagnostic DID polled about once a minute: $slow")
         val (f, m, s) = eng.tierCounts
@@ -438,6 +457,59 @@ object SelfTest {
         val distinct = fake.sent.toSet().size
         check(distinct >= f + m + s / 2, "slow tier still reached when saturated: distinct=$distinct of ${f + m + s}")
         check(isExhaustHealth("EGT11") && isExhaustHealth("DPF1_DP") && isExhaustHealth("MZD_SOOT_GL") && !isExhaustHealth("RPM"), "exhaust/DPF ids")
+    }
+
+    fun fastPolling(lib: SignalSet) {
+        // Guard: multi-PID and response counts are allowed, nothing else loosens.
+        for (ok in listOf("010C0D05", "010C0D05100F11", "010C1", "22042B1", "031", "0902")) check(RequestGuard.isAllowed(ok), "allowed: $ok")
+        for (bad in listOf("010C0D05100F1104", "0401", "04", "2E04011", "1", "31010203", "010C0", "1001")) check(!RequestGuard.isAllowed(bad), "refused: $bad")
+        // Splitting a multi-PID reply (first PID's echo already stripped, as Positive gives it)
+        val parts = MultiPid.split(listOf("0C", "0D", "05"), "0C800D2405820000".hexToBytes())
+        eq(parts.keys.toList(), listOf("0C", "0D", "05"), "multi-PID split keys")
+        eq(parts["0C"]?.toHex(), "0C80", "RPM bytes"); eq(parts["0D"]?.toHex(), "24", "speed byte"); eq(parts["05"]?.toHex(), "82", "ECT byte")
+        eq(MultiPid.split(listOf("0C", "0D"), "0C80".hexToBytes()).keys.toList(), listOf("0C"), "ECU answered first PID only")
+        // A multi-frame reply cut short is not a reply
+        val cut = Elm327.parse("010C0D05100F11", "7E8101241 0C 0C 80 0D 24", "7E8")
+        check(cut is ObdResponse.Error && cut.text == "truncated", "truncated multi-frame -> error: $cut")
+
+        // Engine: RPM/speed/coolant go out together, with a response count, every ~0.5 s.
+        val fake = FakeCx5(); val elm = Elm327(fake).also { it.init() }
+        val prof = Discoverer(elm, lib, DiscoverOptions(yearOverride = 2017, delayMs = 0), sleep = {}).run()
+        var now = 5_000_000L
+        val out = mutableListOf<Triple<String, String, Boolean>>()
+        val eng = LoggerEngine(elm, lib, prof, { tp, pl, r -> out += Triple(tp, pl, r) }, TopicScheme.forVehicle(null),
+            LoggerConfig(minGapMs = 0), now = { now }, sleep = { now += it })
+        fake.rpm = 1500.0; fake.speed = 36.0
+        fake.sent.clear()
+        val start = now
+        repeat(600) { i -> fake.rpm = 1500.0 + (i % 7); eng.step(); now += 50 }   // 50 ms per request, RPM moving
+        fake.rpm = 1500.0; repeat(3) { eng.step(); now += 600 }
+        val secs = (now - start) / 1000.0
+        val multi = fake.sent.filter { !it.startsWith("AT") && it.startsWith("01") && (if (it.length % 2 == 1) it.length - 1 else it.length) > 4 }
+        check(multi.any { asks(it, "010C") && asks(it, "010D") }, "RPM and speed in one request: ${multi.take(3)}")
+        check(fake.sent.any { !it.startsWith("AT") && it.length % 2 == 1 }, "single-frame requests use a response count")
+        val rpmReqs = fake.sent.count { asks(it, "010C") }
+        check(rpmReqs >= secs * 1.6 && rpmReqs <= secs * 2.2, "RPM about every 0.5 s: $rpmReqs in $secs s")
+        eq(eng.values["RPM"]?.first?.let { (it as Decoded.Num).v }, 1500.0, "RPM decoded from the multi-PID reply")
+        eq(eng.values["VSS"]?.first?.let { (it as Decoded.Num).v }, 36.0, "speed decoded from the multi-PID reply")
+        // HA hears RPM at most once a second
+        val rpmTopic = TopicScheme.forVehicle(null).signalTopic("RPM")
+        val rpmPubs = out.count { it.first == rpmTopic }
+        check(rpmPubs <= secs + 1 && rpmPubs >= secs * 0.7, "RPM published to HA about once a second: $rpmPubs in $secs s")
+        check(eng.unitCounts.second >= 1, "at least one multi-PID batch")
+
+        // An ECU that ignores extra PIDs: batch dissolves, values keep coming.
+        fake.singlePidOnly = true; fake.speed = 50.0
+        repeat(400) { eng.step(); now += 50 }
+        eq(eng.unitCounts.second, 0, "unreliable batch split back into single requests")
+        eq(eng.values["VSS"]?.first?.let { (it as Decoded.Num).v }, 50.0, "speed still read after the split")
+
+        // An adapter that rejects response counts: requests still answer, and counts switch off.
+        val f2 = FakeCx5().also { it.rejectCounts = true; it.rpm = 900.0 }
+        val e2 = Elm327(f2).also { it.init() }
+        repeat(12) { for (r in listOf("010C", "010D", "0105", "0110", "012F", "0142")) e2.request(r) }
+        check(!e2.responseCounts, "response counts turned off on an adapter that rejects them")
+        check(e2.request("010C") is ObdResponse.Positive, "and requests still answer")
     }
 
     fun sweepStore() {
@@ -512,6 +584,7 @@ object SelfTest {
         fuelType()
         pollTiers(lib)
         noStarvation(lib)
+        fastPolling(lib)
         sweepStore()
         units()
         gps()

@@ -16,10 +16,10 @@ data class LoggerConfig(
     val publishDefaults: Boolean = true,        // DefaultSignals (core J1979 + OBDb suggestedMetric) get HA sensors
     val publishAll: Boolean = false,            // every supported signal gets a sensor
     val publishCandidates: Boolean = true,      // unvalidated overlay DIDs as raw diagnostic sensors
-    val minGapMs: Long = 60,                    // pause between requests
+    val minGapMs: Long = 20,                    // pause between requests
     val freqScale: Double = 1.0,                // multiply OBDb poll intervals
     val dtcIntervalMs: Long = 60_000,
-    val publishMinIntervalMs: Long = 2_000,     // per topic
+    val publishMinIntervalMs: Long = 1_000,     // per topic: HA gets at most one value a second
     val republishMs: Long = 30_000,             // keep expire_after sensors alive when unchanged
     val tripStartRpm: Double = 300.0,
     val tripStartHoldMs: Long = 5_000,
@@ -36,8 +36,9 @@ data class LoggerConfig(
     /** Poll the discovery sweep's unidentified DIDs and log them raw (CSV + diagnostic sensors). */
     val logSweepHits: Boolean = true,
     val cylinders: Int = 4,
-    /** Poll tiers: dashboard/trip/fuel signals fast, HA-visible ones medium, diagnostics slow. */
-    val fastMs: Long = 3_000,
+    /** Poll tiers: dashboard/trip/fuel signals fast, HA-visible ones medium, diagnostics slow. The fast tier
+     *  stretches itself if it would take more than half the adapter's time (see LoggerEngine.fastEveryMs). */
+    val fastMs: Long = 500,
     val mediumMs: Long = 15_000,
     val slowMs: Long = 60_000,
 )
@@ -94,10 +95,42 @@ class LoggerEngine(
             else -> 0
         }
     }
-    private fun intervalMs(c: Command): Long {
-        val base = when (tier[c.key]) { 2 -> cfg.fastMs; 1 -> maxOf(cfg.mediumMs, (c.freq * 1000).toLong()); else -> maxOf(cfg.slowMs, (c.freq * 1000).toLong()) }
+    /** What one request polls: one command, or several fast service 01 PIDs asked for together. */
+    private inner class PollUnit(val members: List<Command>) {
+        val first = members.first()
+        val pids = members.map { it.pid.uppercase() }.distinct()
+        val batch = pids.size > 1
+        val hdr = first.hdr; val rax = first.rax
+        val request = if (batch) "01" + pids.joinToString("") else first.request
+        val key = if (batch) "$hdr:$request" else first.key
+        val tier = members.maxOf { this@LoggerEngine.tier[it.key] ?: 0 }
+        val freq = members.minOf { it.freq }
+    }
+
+    private val units: MutableList<PollUnit> = ArrayList<PollUnit>().also { out ->
+        val batchable = polled.filter { (tier[it.key] ?: 0) == 2 && it.validated && MultiPid.batchable(it) }
+        for (group in batchable.groupBy { it.hdr to it.rax }.values) {
+            val byPid = group.groupBy { it.pid.uppercase() }.values.toList()
+            for (chunk in byPid.chunked(MultiPid.MAX)) out += PollUnit(chunk.flatten())
+        }
+        val inBatch = batchable.toHashSet()
+        for (c in polled) if (c !in inBatch) out += PollUnit(listOf(c))
+    }
+    private val batchMisses = HashMap<String, Int>()
+
+    /** Fast-tier interval: the configured one, stretched so fast requests use at most half the adapter. */
+    val fastEveryMs: Long get() {
+        val fastUnits = units.count { it.tier == 2 }
+        return maxOf(cfg.fastMs, (fastUnits * avgRequestMs * 2).toLong())
+    }
+    private var avgRequestMs = 0.0
+
+    private fun intervalMs(u: PollUnit): Long {
+        val base = when (u.tier) { 2 -> return fastEveryMs; 1 -> maxOf(cfg.mediumMs, (u.freq * 1000).toLong()); else -> maxOf(cfg.slowMs, (u.freq * 1000).toLong()) }
         return (base * cfg.freqScale).toLong().coerceAtLeast(500)
     }
+    /** Requests per poll round for the log: (units, of which multi-PID batches). */
+    val unitCounts: Pair<Int, Int> get() = units.size to units.count { it.batch }
     /** HA expire_after: slow diagnostics may legitimately go minutes between polls on a busy adapter. */
     internal fun expireFor(c: Command): Int = if ((tier[c.key] ?: 0) >= 1) 180 else 900
     /** Commands per tier (fast, medium, slow), for the log. */
@@ -173,34 +206,69 @@ class LoggerEngine(
     fun step() {
         val t = now()
         if (t - lastDtc >= cfg.dtcIntervalMs && (tripActive || lastDtc == 0L)) { readDtcs(); lastDtc = t }
-        if (polled.isEmpty()) { sleep(1000); return }
+        if (units.isEmpty()) { sleep(1000); return }
+        maybeLogRate(t)
         // Among the commands that are due, the highest tier goes first, then the most overdue, so a
         // saturated adapter starves diagnostics rather than speed/RPM.
         // Every FAIR_EVERY-th pick ignores tiers and takes the most overdue command, so a saturated
         // adapter slows diagnostics down but never starves them (HA would mark them unavailable).
+        // Within a tier, requests to the ECU the adapter is already addressed to go first (no ATSH/ATCRA).
         val fair = ++picks % FAIR_EVERY == 0L
-        var c: Command? = null
-        for (x in polled) {
+        val cur = elm.currentHeader
+        var c: PollUnit? = null
+        for (x in units) {
             val d = nextDue[x.key] ?: 0L
             if (d > t) continue
             val best = c
             if (best == null) { c = x; continue }
-            val tx = tier[x.key] ?: 0; val tb = tier[best.key] ?: 0
-            if (fair) { if (d < (nextDue[best.key] ?: 0L)) c = x; continue }
-            if (tx > tb || (tx == tb && d < (nextDue[best.key] ?: 0L))) c = x
+            val db = nextDue[best.key] ?: 0L
+            if (fair) { if (d < db) c = x; continue }
+            val sx = x.hdr == cur; val sb = best.hdr == cur
+            if (x.tier > best.tier || (x.tier == best.tier && (sx && !sb || (sx == sb && d < db)))) c = x
         }
-        if (c == null) { sleep(minOf(polled.minOf { nextDue[it.key] ?: 0L } - t, 500).coerceAtLeast(1)); return }
+        if (c == null) { sleep(minOf(units.minOf { nextDue[it.key] ?: 0L } - t, 200).coerceAtLeast(1)); return }
         nextDue[c.key] = t + intervalMs(c)
 
+        val n0 = elm.requestNanos; val q0 = elm.requests
         val r = elm.request(c.request, c.hdr, c.rax)
+        if (elm.requests > q0) {
+            val ms = (elm.requestNanos - n0) / 1e6 / (elm.requests - q0)
+            avgRequestMs = if (avgRequestMs == 0.0) ms else avgRequestMs * 0.9 + ms * 0.1
+        }
         if (r is ObdResponse.Positive) {
             lastGoodReply = t
-            handle(c, r.data, t)
-        } else if (r is ObdResponse.Error && r.text.contains("UNABLE")) {
-            log("adapter: ${r.text}")
+            if (c.batch) {
+                val parts = MultiPid.split(c.pids, r.data)
+                for (m in c.members) parts[m.pid.uppercase()]?.let { handle(m, it, t) }
+                if (parts.size < c.pids.size) batchMiss(c, "answered ${parts.keys.joinToString(",").ifEmpty { "nothing" }}")
+                else batchMisses.remove(c.key)
+            } else handle(c.first, r.data, t)
+        } else {
+            if (c.batch && t - lastGoodReply < 5_000) batchMiss(c, r.toString())
+            if (r is ObdResponse.Error && r.text.contains("UNABLE")) log("adapter: ${r.text}")
         }
         if (tripActive && t - lastGoodReply > cfg.engineOffTimeoutMs) { log("no replies, engine off"); endTrip() }
         sleep(cfg.minGapMs)
+    }
+
+    /** A batch the ECU keeps answering badly is split back into single requests for this session. */
+    private fun batchMiss(u: PollUnit, why: String) {
+        val n = (batchMisses[u.key] ?: 0) + 1
+        batchMisses[u.key] = n
+        if (n < 3) return
+        units.remove(u); batchMisses.remove(u.key)
+        for (m in u.members) { units += PollUnit(listOf(m)); nextDue.remove(m.key) }
+        log("multi-PID ${u.request} on ${u.hdr} unreliable ($why): polling its PIDs one by one")
+    }
+
+    private var rateAt = 0L; private var rateReq = 0L
+    private fun maybeLogRate(t: Long) {
+        if (rateAt == 0L) { rateAt = t; rateReq = elm.requests; return }
+        if (t - rateAt < 60_000) return
+        val perS = (elm.requests - rateReq) * 1000.0 / (t - rateAt)
+        log("poll rate %.1f req/s, %.0f ms each, fast every %d ms, response counts %s".format(java.util.Locale.ROOT,
+            perS, avgRequestMs, fastEveryMs, if (elm.responseCounts) "on" else "off"))
+        rateAt = t; rateReq = elm.requests
     }
 
     private fun handle(c: Command, data: ByteArray, t: Long) {

@@ -12,3 +12,5 @@
 | Anything else | **Export app log** and attach it to a [bug report](https://github.com/alex1075/carmonitor/issues/new?template=bug_report.yml). |
 | Entities "unavailable" when parked | Expected: live sensors expire when nothing is publishing. Trip and DTC entities stay. |
 | Logger stops overnight | Battery optimisation. Set the app to *Unrestricted*. |
+| Dashboard values update slowly | Speed, RPM, coolant and fuel rate are polled every 0.5 s (several standard PIDs in one request), exhaust/DPF and HA's other headline sensors every 15 s, diagnostics every 60 s. HA gets at most one value a second per sensor. If the adapter can't keep up, the fast group slows itself so it never takes more than half the adapter's time: the app log shows `poll rate … req/s, … ms each, fast every … ms` once a minute. A cheap v1.5 clone manages roughly 5–10 requests a second; an OBDLink several times that. |
+| Log says "multi-PID … unreliable" or "response counts unreliable" | The ECU or adapter didn't handle a speed-up well, so the app went back to one PID per request (or waiting for the adapter's timeout). Harmless, just slower. |

@@ -5,8 +5,10 @@ package uk.co.ashunt.carmonitor.core
  * app goes through [check]; anything not explicitly read-only is refused.
  *
  * Allowed OBD/UDS services (all read-only):
- *   01 current data, 03 stored DTCs, 07 pending DTCs, 09 vehicle info,
- *   22 ReadDataByIdentifier (exactly one 2-byte DID).
+ *   01 current data (1 to 6 PIDs per request, as J1979 allows), 03 stored DTCs, 07 pending DTCs,
+ *   09 vehicle info, 22 ReadDataByIdentifier (exactly one 2-byte DID).
+ * Any of them may carry the ELM327's single-digit response count ("010C1"): it only tells the
+ * adapter how many replies to wait for and never reaches the car.
  *
  * Deliberately refused, among others: 04 (clear DTCs), 10 (session control),
  * 11 (ECU reset), 14 (clear diagnostic info), 27 (security access),
@@ -18,7 +20,7 @@ object RequestGuard {
     class Refused(msg: String) : SecurityException(msg)
 
     private val SERVICE_LEN = mapOf(
-        "01" to setOf(1),      // 01 PP
+        "01" to (1..6).toSet(),  // 01 PP [PP ...]
         "03" to setOf(0),
         "07" to setOf(0),
         "09" to setOf(1),      // 09 PP
@@ -48,12 +50,18 @@ object RequestGuard {
             if (AT_ALLOWED.none { it.matches(arg) }) throw Refused("AT command not allowed: $c")
             return
         }
-        if (!c.all { it in "0123456789ABCDEF" } || c.length % 2 != 0)
-            throw Refused("not a hex request: $c")
+        if (!c.all { it in "0123456789ABCDEF" }) throw Refused("not a hex request: $c")
+        // Optional ELM327 response count: one trailing digit 1-F after a whole number of bytes.
+        val body = if (c.length % 2 == 1 && c.last() != '0') c.dropLast(1) else c
+        if (body.length % 2 != 0 || body.isEmpty()) throw Refused("not a hex request: $c")
+        checkBody(body, c)
+    }
+
+    private fun checkBody(c: String, orig: String) {
         val svc = c.substring(0, 2)
         val payloadBytes = (c.length - 2) / 2
         val lens = SERVICE_LEN[svc] ?: throw Refused("service $svc is not on the read-only allowlist")
-        if (payloadBytes !in lens) throw Refused("bad length for service $svc: $c")
+        if (payloadBytes !in lens) throw Refused("bad length for service $svc: $orig")
     }
 
     private val HDR11 = Regex("^[0-9A-F]{3}$")

@@ -247,12 +247,15 @@ class ObdService : Service() {
                         val engine = LoggerEngine(elm, lib, profile, mqtt, scheme, prefs.loggerConfig(),
                             csv = csvRow(w), log = { Status.log(it) })
                         setState("logging", "${engine.pollCount} commands")
-                        engine.tierCounts.let { (f, m, s) -> Status.log("poll tiers: $f fast (3 s), $m medium (15 s), $s slow (60 s)") }
+                        engine.tierCounts.let { (f, m, s) -> Status.log("poll tiers: $f fast (0.5 s), $m medium (15 s), $s slow (60 s)") }
+                        engine.unitCounts.let { (u, b) -> Status.log("$u requests per round, $b of them multi-PID") }
                         updateNote("Logging ${engine.pollCount} signals")
                         var lastUi = 0L
+                        var lastDash = 0L
                         var lastFuelSave = System.currentTimeMillis()
                         try { engine.run(stop = {
                             val t = System.currentTimeMillis()
+                            if (t - lastDash > 400) { lastDash = t; Status.dash = engine.snapshot() }
                             if (t - lastUi > 1000) {
                                 lastUi = t
                                 Status.mqtt = mqtt.connected
