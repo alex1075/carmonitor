@@ -120,6 +120,13 @@ class MainActivity : ComponentActivity(), Actions {
         model.layout = prefs.layout; model.theme = prefs.theme; model.units = prefs.units()
         model.startOnBoot = prefs.autoStart; model.candidates = prefs.publishCandidates; model.logSweep = prefs.logSweepHits
         model.modelYear = prefs.modelYear.toString(); model.sweepRanges = prefs.sweep
+        model.gpsRecord = prefs.gpsRecord; model.gpsToHa = prefs.gpsToHa
+        model.gpsNote = when {
+            !prefs.gpsWanted -> ""
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ->
+                "Location permission is off: allow it in Android settings for GPS to work"
+            else -> "Location is read only while logging. If the logger starts while the app is closed, Android may block GPS for that drive."
+        }
     }
     private fun refreshCar() = refresh()
 
@@ -173,8 +180,38 @@ class MainActivity : ComponentActivity(), Actions {
     override fun setLogSweep(on: Boolean) { prefs.logSweepHits = on }
     override fun setModelYear(v: String) { v.toIntOrNull()?.takeIf { it in 1990..2100 }?.let { prefs.modelYear = it } }
     override fun setSweepRanges(v: String) { prefs.sweep = v }
+    // --- GPS: warning once, then while-in-use location permission ------------------------
+    private var pendingGps: (() -> Unit)? = null
+    override fun setGpsRecord(on: Boolean) = gpsSwitch(on) { prefs.gpsRecord = on }
+    override fun setGpsToHa(on: Boolean) = gpsSwitch(on) { prefs.gpsToHa = on }
+    private fun gpsSwitch(on: Boolean, apply: () -> Unit) {
+        if (!on) { apply(); refresh(); vehicleChanged(); return }
+        val afterWarning = {
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                apply(); refresh(); vehicleChanged()
+            } else {
+                pendingGps = apply
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 3)
+            }
+        }
+        if (prefs.gpsWarned) { afterWarning(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Before you turn on GPS")
+            .setMessage("Don't use or adjust this app while driving: set it up while parked, and let it run on its own.\n\n" +
+                "Location is read only while the logger is running and goes only to this phone and your own Home Assistant. " +
+                "You use the location features at your own discretion and responsibility.")
+            .setPositiveButton("I understand") { _, _ -> prefs.gpsWarned = true; afterWarning() }
+            .setNegativeButton("Cancel") { _, _ -> refresh() }
+            .setOnCancelListener { refresh() }
+            .show()
+    }
+    override fun exportTrack() {
+        val f = prefs.logDir.listFiles { x -> x.name.endsWith(".gpx") }?.maxByOrNull { it.lastModified() }
+        if (f == null) toast("No GPS tracks yet") else export(f, f.name, "application/gpx+xml")
+    }
+
     override fun exportDrive() {
-        val f = prefs.logDir.listFiles()?.maxByOrNull { it.lastModified() }
+        val f = prefs.logDir.listFiles { x -> x.name.endsWith(".csv") }?.maxByOrNull { it.lastModified() }
         if (f == null) toast("No drives yet") else export(f, f.name, "text/csv")
     }
     override fun importOverlay() = pickFile("application/json", 11)
@@ -190,6 +227,11 @@ class MainActivity : ComponentActivity(), Actions {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 3) {
+            val ok = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            if (ok) { pendingGps?.invoke(); vehicleChanged() } else toast("GPS needs location permission (while using the app)")
+            pendingGps = null
+        }
         refresh()
         if (requestCode == 2 && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) scanAndPair()
     }

@@ -16,6 +16,8 @@ With base `car/<slug>`:
 | `<base>/trip/distance_km`, `<base>/trip/last_distance_km` | km |
 | `<base>/dtc/count`, `<base>/dtc/codes`, `<base>/dtc/pending` | `2`, `P0401,P24A5`, `none` |
 | `<base>/regen_active`, `<base>/trip/last_regen` | diesels with DPF data only |
+| `<base>/gps/location` | `{"latitude":…,"longitude":…,"gps_accuracy":…}`, retained (only with *Send location to HA*) |
+| `<base>/gps/trip_distance_km` | GPS-measured distance of the current trip |
 | `<base>/raw/<HDR>_<REQ>` | `{"u16":…,"hex":"…"}` for unvalidated overlay PIDs |
 
 Signal IDs are OBDb's (for example `RPM`, `VSS`, `ECT`, `DPF1_DP`). Their names and units come from the signalset.

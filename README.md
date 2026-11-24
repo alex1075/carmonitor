@@ -75,6 +75,10 @@ Three tabs, Material 3:
 - **Car:** vehicle and tank size, OBD dongle, autostart, and the discovery profile (discover, sweep, import, export).
 - **Home Assistant:** connection, naming, appearance, units, options, advanced settings, exports.
 
+**GPS (optional, off by default):** *Record GPS track* adds position to each drive's CSV and saves a GPX track;
+*Send location to HA* adds a car location tracker and a GPS trip distance sensor. Location is read only while the logger
+runs, and the first switch-on shows a warning: don't use the app while driving.
+
 **Appearance:** *Extended* (large tiles) or *Compact* (one dense list) layout, and System, Light or Dark theme.
 **Units:** km/h or mph, litres or UK gallons (economy then shows as mpg), °C or °F. Units only change what the phone shows:
 Home Assistant always receives metric and converts with its own unit settings.

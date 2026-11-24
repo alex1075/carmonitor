@@ -14,6 +14,10 @@ import android.graphics.drawable.Icon
 import android.os.IBinder
 import android.os.PowerManager
 import uk.co.ashunt.carmonitor.core.SweepHits
+import uk.co.ashunt.carmonitor.core.GpxWriter
+import uk.co.ashunt.carmonitor.core.GpsOdometer
+import uk.co.ashunt.carmonitor.core.GpsHa
+import uk.co.ashunt.carmonitor.core.Fix
 import uk.co.ashunt.carmonitor.core.CsvSink
 import uk.co.ashunt.carmonitor.core.Decoded
 import uk.co.ashunt.carmonitor.core.DiscoverOptions
@@ -95,6 +99,7 @@ class ObdService : Service() {
             return START_STICKY
         }
         if (intent?.action == ACTION_RELOAD) {
+            startForegroundTyped()          // re-type the service (GPS may have been switched on)
             if (worker?.isAlive == true) { reloadRequested = true; poke() }
             return START_STICKY
         }
@@ -108,7 +113,7 @@ class ObdService : Service() {
             return START_NOT_STICKY
         }
         createChannel()
-        startForeground(NOTE_ID, note("Waiting for the car…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        startForegroundTyped()
         if (intent?.action == ACTION_DISCOVER) discoverRequested = intent.getBooleanExtra(EXTRA_SWEEP, false)
         if (intent?.action == ACTION_LOG) { carOffAt = 0L; parked = false; poke() }   // car Bluetooth connected: dial now
         if (worker?.isAlive != true) {
@@ -117,6 +122,23 @@ class ObdService : Service() {
         }
         return START_STICKY
     }
+
+    /** Location type only when GPS is wanted and allowed; Android refuses it when started from the
+     *  background without the location exemption, so fall back to connectedDevice and say so. */
+    private fun startForegroundTyped() {
+        val wantGps = Prefs(this).gpsWanted && GpsSource(this).permitted()
+        val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+            (if (wantGps) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
+        try {
+            startForeground(NOTE_ID, note("Waiting for the car…"), types)
+            gpsForeground = wantGps
+        } catch (e: SecurityException) {
+            startForeground(NOTE_ID, note("Waiting for the car…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            gpsForeground = false
+            Status.log("GPS unavailable for this start (Android: ${e.message}); open the app once to enable it")
+        }
+    }
+    @Volatile private var gpsForeground = false
 
     override fun onDestroy() {
         running = false
@@ -208,8 +230,19 @@ class ObdService : Service() {
                             profile = profile.copy(sweepHits = merged); prefs.profileFile.writeText(profile.toJson())
                         }
                     }
-                    val csvFile = File(prefs.logDir, "drive-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date()) + ".csv")
-                    csvFile.bufferedWriter().use { w ->
+                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date())
+                    val csvFile = File(prefs.logDir, "drive-$stamp.csv")
+                    // Optional GPS for this session only
+                    val gps = if (prefs.gpsWanted && gpsForeground) GpsSource(this) else null
+                    gps?.start()?.let { Status.log("GPS: $it") }
+                    if (prefs.gpsWanted && gps == null) Status.log("GPS on but not available this session (permission or background start)")
+                    val gpx = if (gps?.running == true && prefs.gpsRecord)
+                        GpxWriter(File(prefs.logDir, "drive-$stamp.gpx").bufferedWriter(), "Drive $stamp") else null
+                    val odo = GpsOdometer()
+                    var lastLoc = 0L; var lastFix: Fix? = null
+                    if (gps?.running == true && prefs.gpsToHa) GpsHa.entities(scheme).forEach { (t, p) -> mqtt.publish(t, p, true) }
+                    if (gps?.running == true) Status.log("GPS on (${listOfNotNull(if (prefs.gpsRecord) "recording" else null, if (prefs.gpsToHa) "to HA" else null).joinToString(", ")})")
+                    try { csvFile.bufferedWriter().use { w ->
                         w.write("ts_ms,key,signal,value,raw\n")
                         val engine = LoggerEngine(elm, lib, profile, mqtt, scheme, prefs.loggerConfig(),
                             csv = csvRow(w), log = { Status.log(it) })
@@ -231,6 +264,25 @@ class ObdService : Service() {
                                 w.flush()
                             }
                             if (t - lastFuelSave > 60_000) { lastFuelSave = t; prefs.fuelState = engine.fuel.state() }
+                            if (gps?.running == true) {
+                                for (f in gps?.drain().orEmpty()) {
+                                    lastFix = f
+                                    if (prefs.gpsRecord) {
+                                        csvRow(w).row(f.tMs, "gps", "GPS_LAT", "%.7f".format(Locale.ROOT, f.lat), "")
+                                        csvRow(w).row(f.tMs, "gps", "GPS_LON", "%.7f".format(Locale.ROOT, f.lon), "")
+                                        f.speedMs?.let { csvRow(w).row(f.tMs, "gps", "GPS_SPEED_KMH", "%.1f".format(Locale.ROOT, it * 3.6), "") }
+                                        f.accM?.let { csvRow(w).row(f.tMs, "gps", "GPS_ACC_M", "%.0f".format(Locale.ROOT, it), "") }
+                                        gpx?.point(f)
+                                    }
+                                    if (engine.tripActive) odo.add(f) else odo.reset()
+                                }
+                                val fix = lastFix
+                                if (prefs.gpsToHa && fix != null && t - lastLoc > 10_000) {
+                                    lastLoc = t
+                                    mqtt.publish(GpsHa.locationTopic(scheme), GpsHa.locationPayload(fix), true)
+                                    if (engine.tripActive) mqtt.publish(GpsHa.tripKmTopic(scheme), "%.2f".format(Locale.ROOT, odo.km), true)
+                                }
+                            }
                             // Watchdog: no ECU reply for 60 s = car off or link silently dead. Release the
                             // dongle and go back to waiting, so the next ignition/CMU trigger dials afresh.
                             val silentMs = t - engine.lastGoodReplyMs
@@ -247,6 +299,10 @@ class ObdService : Service() {
                             pokedFlag = false
                             !running || discoverRequested != null || restart || reloadRequested
                         }) } finally { prefs.fuelState = engine.fuel.state(); Status.dash = null }
+                    } } finally {
+                        gps?.stop()
+                        try { gpx?.close() } catch (_: Exception) {}
+                        lastFix?.let { if (prefs.gpsToHa) mqtt.publish(GpsHa.locationTopic(scheme), GpsHa.locationPayload(it), true) }
                     }
                 } catch (e: IOException) {
                     Status.log("link lost: ${e.message}")

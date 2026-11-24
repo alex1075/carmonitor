@@ -96,6 +96,9 @@ class UiModel {
     var logSweep by mutableStateOf(true)
     var modelYear by mutableStateOf("")
     var sweepRanges by mutableStateOf("")
+    var gpsRecord by mutableStateOf(false)
+    var gpsToHa by mutableStateOf(false)
+    var gpsNote by mutableStateOf("")
     val logging get() = state.startsWith("logging") || state.startsWith("discovering")
 }
 
@@ -115,6 +118,7 @@ interface Actions {
     fun setStartOnBoot(on: Boolean); fun setCandidates(on: Boolean); fun setLogSweep(on: Boolean)
     fun setModelYear(v: String); fun setSweepRanges(v: String)
     fun exportDrive(); fun exportLog(); fun importOverlay()
+    fun setGpsRecord(on: Boolean); fun setGpsToHa(on: Boolean); fun exportTrack()
 }
 
 // --- theme: Material 3, blue seed (matches the mockup) --------------------------------
@@ -454,6 +458,13 @@ fun SettingsScreen(m: UiModel, a: Actions) {
                 m.units = u.copy(fahrenheit = it == "i"); a.setUnits(m.units) }
             Muted("Display only: Home Assistant always receives metric. Gallons are UK; economy is mpg with gallons.")
         }
+        Section("Recording & location") {
+            Muted("Every drive is already saved on the phone as a CSV of all readings. GPS adds where you went.")
+            SwitchRow("Record GPS track", "GPS in the drive CSV, plus a GPX track per drive", m.gpsRecord) { a.setGpsRecord(it) }
+            HorizontalDivider()
+            SwitchRow("Send location to HA", "Car location tracker + GPS trip distance", m.gpsToHa) { a.setGpsToHa(it) }
+            if (m.gpsNote.isNotBlank()) Muted(m.gpsNote)
+        }
         Section("Options") {
             SwitchRow("Start on boot", null, m.startOnBoot) { m.startOnBoot = it; a.setStartOnBoot(it) }
             HorizontalDivider()
@@ -470,6 +481,7 @@ fun SettingsScreen(m: UiModel, a: Actions) {
         }
         Section("Data & logs") {
             TextButton(onClick = a::exportDrive) { Text("Export last drive (CSV)") }
+            TextButton(onClick = a::exportTrack) { Text("Export last GPS track (GPX)") }
             TextButton(onClick = a::exportLog) { Text("Export app log") }
             TextButton(onClick = a::importOverlay) { Text("Import overlay JSON") }
         }
