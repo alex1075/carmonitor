@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.6] - 2026-11-24
+### Removed
+- "Legacy CX-5 Pi-logger topics": every car, the CX-5 included, uses Home Assistant discovery (trip, faults, regen).
+- "Force diesel": the fuel type comes from the car (J1979 0151).
+- "Publish every supported signal": always on, so the HA long-term archive gets everything.
+### Changed
+- No vehicle is pre-selected on a fresh install (no CX-5 default).
+- Re-picking a car the app already knows also restores its MQTT topics and HA device, so its sensors keep their IDs.
+
 ## [0.5.5] - 2026-11-24
 ### Added
 - **Saved profile per car**: each vehicle keeps its own discovery profile, sweep hits and fuel settings (tank,
