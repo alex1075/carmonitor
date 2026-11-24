@@ -57,7 +57,8 @@ class Prefs(private val ctx: Context) {
     fun isTrigger(address: String) = address in carDevices || address == deviceAddress
     /** Used when the VIN carries no model-year code (most EU/JDM VINs). */
     var modelYear: Int get() = sp.getInt("year", 2017); set(v) = sp.edit().putInt("year", v).apply()
-    var publishAll: Boolean get() = sp.getBoolean("all", false); set(v) = sp.edit().putBoolean("all", v).apply()
+    /** Every supported signal goes to HA (the archive wants everything; no longer a setting). */
+    val publishAll: Boolean get() = true
     var publishCandidates: Boolean get() = sp.getBoolean("cand", true); set(v) = sp.edit().putBoolean("cand", v).apply()
     var autoStart: Boolean get() = sp.getBoolean("boot", true); set(v) = sp.edit().putBoolean("boot", v).apply()
     var logSweepHits: Boolean get() = sp.getBoolean("logsweep", true); set(v) = sp.edit().putBoolean("logsweep", v).apply()
@@ -65,16 +66,15 @@ class Prefs(private val ctx: Context) {
 
     // --- vehicle (OBDb repo) and HA naming -------------------------------------------
     /** OBDb repo, e.g. "Mazda-CX-5"; "" = generic SAE J1979 only. */
-    var vehicleRepo: String get() = str("repo", "Mazda-CX-5"); set(v) = put("repo", v)
+    var vehicleRepo: String get() = str("repo", ""); set(v) = put("repo", v)
     var signalsetFile: String get() = str("ssfile", "default.json"); set(v) = put("ssfile", v)
-    var topicBase: String get() = str("tbase", TopicScheme.MAZDA_CX5_LEGACY.base); set(v) = put("tbase", v)
-    var haDeviceId: String get() = str("devid", TopicScheme.MAZDA_CX5_LEGACY.deviceId); set(v) = put("devid", v)
-    var haDeviceName: String get() = str("devname", TopicScheme.MAZDA_CX5_LEGACY.deviceName); set(v) = put("devname", v)
-    var legacyTopics: Boolean get() = sp.getBoolean("legacy", true); set(v) = sp.edit().putBoolean("legacy", v).apply()
+    var topicBase: String get() = str("tbase", TopicScheme.forVehicle(null).base); set(v) = put("tbase", v)
+    var haDeviceId: String get() = str("devid", TopicScheme.forVehicle(null).deviceId); set(v) = put("devid", v)
+    var haDeviceName: String get() = str("devname", TopicScheme.forVehicle(null).deviceName); set(v) = put("devname", v)
 
     fun vehicle(): VehicleRef? = vehicleRepo.takeIf { it.isNotBlank() }?.let { ObdbCatalog.parseRepoName(it) }
 
-    fun scheme() = TopicScheme(topicBase.trim('/'), haDeviceId, haDeviceName, vehicle()?.model, legacyTopics)
+    fun scheme() = TopicScheme(topicBase.trim('/'), haDeviceId, haDeviceName, vehicle()?.model, legacy = false)
 
     /** Switch vehicle: reset HA naming to that car's defaults (CX-5 keeps the Pi-logger preset).
      *  Each car keeps its own discovery profile and fuel settings, so switching back to a car the app
@@ -83,9 +83,9 @@ class Prefs(private val ctx: Context) {
         stashVehicle()
         vehicleRepo = v?.repo ?: ""
         signalsetFile = file
-        val s = if (v?.repo == "Mazda-CX-5") TopicScheme.MAZDA_CX5_LEGACY else TopicScheme.forVehicle(v)
-        topicBase = s.base; haDeviceId = s.deviceId; haDeviceName = s.deviceName; legacyTopics = s.legacy
-        restoreVehicle()
+        val s = TopicScheme.forVehicle(v)
+        topicBase = s.base; haDeviceId = s.deviceId; haDeviceName = s.deviceName
+        restoreVehicle()                  // a car the app already knows gets its own topics/HA device back
     }
 
     private val profilesDir get() = File(ctx.filesDir, "profiles").apply { mkdirs() }
@@ -96,15 +96,19 @@ class Prefs(private val ctx: Context) {
         val k = vehicleKey()
         val saved = File(profilesDir, "$k.json")
         if (profileFile.exists()) profileFile.copyTo(saved, overwrite = true)
-        sp.edit().putFloat("tank@$k", sp.getFloat("tank", 0f)).putBoolean("diesel@$k", sp.getBoolean("diesel", false))
-            .putString("fuelstate@$k", sp.getString("fuelstate", "{}")).apply()
+        sp.edit().putFloat("tank@$k", sp.getFloat("tank", 0f))
+            .putString("fuelstate@$k", sp.getString("fuelstate", "{}"))
+            .putString("tbase@$k", topicBase).putString("devid@$k", haDeviceId).putString("devname@$k", haDeviceName).apply()
     }
     private fun restoreVehicle() {
         val k = vehicleKey()
         val saved = File(profilesDir, "$k.json")
         if (saved.exists()) saved.copyTo(profileFile, overwrite = true) else profileFile.delete()
-        sp.edit().putFloat("tank", sp.getFloat("tank@$k", 0f)).putBoolean("diesel", sp.getBoolean("diesel@$k", false))
+        sp.edit().putFloat("tank", sp.getFloat("tank@$k", 0f))
             .putString("fuelstate", sp.getString("fuelstate@$k", "{}")).apply()
+        sp.getString("tbase@$k", null)?.let { topicBase = it }
+        sp.getString("devid@$k", null)?.let { haDeviceId = it }
+        sp.getString("devname@$k", null)?.let { haDeviceName = it }
     }
     /** True if this vehicle already has a saved profile (switching to it skips discovery). */
     fun hasSavedProfile(v: VehicleRef?, file: String): Boolean {
@@ -117,10 +121,6 @@ class Prefs(private val ctx: Context) {
     var tankLitres: Double
         get() = sp.getFloat("tank", 0f).toDouble()
         set(v) = sp.edit().putFloat("tank", v.toFloat()).apply()
-    /** Override only: the car's own fuel-type report wins unless this is ticked. */
-    var diesel: Boolean
-        get() = sp.getBoolean("diesel", false)
-        set(v) = sp.edit().putBoolean("diesel", v).apply()
     /** FuelTracker state (long-run average, fill-to-fill baseline) carried between drives. */
     var fuelState: Map<String, Any?>
         get() = try { uk.co.ashunt.carmonitor.core.MiniJson.obj(str("fuelstate", "{}")) } catch (_: Exception) { emptyMap() }
@@ -128,8 +128,6 @@ class Prefs(private val ctx: Context) {
 
     fun loggerConfig() = LoggerConfig(
         publishAll = publishAll, publishCandidates = publishCandidates,
-        fuelType = if (diesel) uk.co.ashunt.carmonitor.core.FuelType.DIESEL else uk.co.ashunt.carmonitor.core.FuelType.PETROL,
-        forceFuelType = diesel,
         tankLitres = tankLitres.takeIf { it > 0 },
         fuelState = fuelState,
         logSweepHits = logSweepHits,

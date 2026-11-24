@@ -52,13 +52,11 @@ class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var device: Spinner
     private lateinit var tank: EditText
-    private lateinit var dieselBox: CheckBox
     private lateinit var connLabel: TextView
     private lateinit var carLabel: TextView
     private lateinit var btAuto: CheckBox
     private lateinit var year: EditText
     private lateinit var sweep: EditText
-    private lateinit var all: CheckBox
     private lateinit var cand: CheckBox
     private lateinit var boot: CheckBox
     private lateinit var logSweep: CheckBox
@@ -66,7 +64,6 @@ class MainActivity : Activity() {
     private lateinit var vehicleLabel: TextView
     private lateinit var topicBase: EditText
     private lateinit var devName: EditText
-    private lateinit var legacy: CheckBox
     private lateinit var live: TextView
     private lateinit var log: TextView
     private var devices: List<Pair<String, String>> = emptyList()   // name, address
@@ -127,12 +124,9 @@ class MainActivity : Activity() {
         ))
         col.addView(label("Fuel tank size in litres (from the handbook; needed for remaining fuel and range)"))
         tank = edit(if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else "", "e.g. 56", InputType.TYPE_CLASS_NUMBER); col.addView(tank)
-        dieselBox = CheckBox(this).apply { text = "Force diesel (normally detected from the car)"; isChecked = prefs.diesel }; col.addView(dieselBox)
         col.addView(label("MQTT topic base and HA device name"))
         topicBase = edit(prefs.topicBase, "car/my_car"); col.addView(topicBase)
         devName = edit(prefs.haDeviceName, "My car"); col.addView(devName)
-        legacy = CheckBox(this).apply { text = "Legacy CX-5 Pi-logger topics (mazda/cx5, miles, YAML entities)"; isChecked = prefs.legacyTopics }
-        col.addView(legacy)
 
         col.addView(label("OBD dongle (paired devices)"))
         device = Spinner(this); col.addView(device)
@@ -156,7 +150,6 @@ class MainActivity : Activity() {
         year = edit(prefs.modelYear.toString(), "2017", InputType.TYPE_CLASS_NUMBER); col.addView(year)
         col.addView(label("Sweep ranges (header:from-to, comma separated)"))
         sweep = edit(prefs.sweep, "7E0:0300-04FF"); col.addView(sweep)
-        all = CheckBox(this).apply { text = "Publish every supported signal to HA"; isChecked = prefs.publishAll }; col.addView(all)
         cand = CheckBox(this).apply { text = "Publish unvalidated diesel candidates (raw)"; isChecked = prefs.publishCandidates }; col.addView(cand)
         boot = CheckBox(this).apply { text = "Start on boot"; isChecked = prefs.autoStart }; col.addView(boot)
         logSweep = CheckBox(this).apply { text = "Log unidentified sweep hits (raw, for PID hunting)"; isChecked = prefs.logSweepHits }; col.addView(logSweep)
@@ -324,16 +317,13 @@ class MainActivity : Activity() {
         devices.getOrNull(device.selectedItemPosition)?.let { prefs.deviceAddress = it.second }
         prefs.modelYear = year.text.toString().toIntOrNull() ?: 2017
         prefs.sweep = sweep.text.toString()
-        prefs.publishAll = all.isChecked
         prefs.publishCandidates = cand.isChecked
         prefs.autoStart = boot.isChecked
         prefs.logSweepHits = logSweep.isChecked
         prefs.btAutostart = btAuto.isChecked
         prefs.tankLitres = tank.text.toString().toDoubleOrNull() ?: 0.0
-        prefs.diesel = dieselBox.isChecked
         prefs.topicBase = topicBase.text.toString().trim().trim('/').ifBlank { prefs.topicBase }
         prefs.haDeviceName = devName.text.toString().trim().ifBlank { prefs.haDeviceName }
-        prefs.legacyTopics = legacy.isChecked
     }
 
     /** Tell a running logger to restart with the new vehicle (no-op if it isn't running). */
@@ -347,9 +337,7 @@ class MainActivity : Activity() {
             (if (v != null) "  ·  ${prefs.signalsetFile}" + (if (prefs.hasSignalset()) "" else "  (not downloaded)") else "")
         topicBase.setText(prefs.topicBase)
         tank.setText(if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else "")
-        dieselBox.isChecked = prefs.diesel
         devName.setText(prefs.haDeviceName)
-        legacy.isChecked = prefs.legacyTopics
     }
 
     // --- OBDb vehicle picker ------------------------------------------------------
