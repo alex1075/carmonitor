@@ -7,6 +7,7 @@ Home Assistant over MQTT. It works with any car in [OBDb](https://github.com/OBD
 1. [[Choosing a dongle|Choosing-a-Dongle]]: which Bluetooth OBD adapter to buy (classic BT, a decent ELM327).
 2. [[Getting started|Getting-Started]]: install, pick your car, connect the broker, run your first discovery.
 3. [[Home Assistant|Home-Assistant]]: topics, entities, example automations.
+4. [[Android Auto|Android-Auto]]: the in-car dashboard and how to enable it.
 
 **Going further**
 - [[Discovery and sweep|Discovery-and-Sweep]]: what the probe does and how to read the profile

@@ -58,4 +58,6 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.13.0")
+    // Android Auto: templated, read-only dashboard
+    implementation("androidx.car.app:app:1.7.0")
 }

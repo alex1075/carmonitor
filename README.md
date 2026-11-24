@@ -79,6 +79,10 @@ Three tabs, Material 3:
 *Send location to HA* adds a car location tracker and a GPS trip distance sensor. Location is read only while the logger
 runs, and the first switch-on shows a warning: don't use the app while driving.
 
+**Android Auto:** a read-only dashboard (speed, RPM, temperatures, fuel and range, economy, trip, DPF regen) shows up in
+Android Auto while the logger runs. As CarMonitor is sideloaded, enable it once: Android Auto settings → tap *Version*
+ten times → ⋮ → *Developer settings* → **Unknown sources**.
+
 **Appearance:** *Extended* (large tiles) or *Compact* (one dense list) layout, and System, Light or Dark theme.
 **Units:** km/h or mph, litres or UK gallons (economy then shows as mpg), °C or °F. Units only change what the phone shows:
 Home Assistant always receives metric and converts with its own unit settings.

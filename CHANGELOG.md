@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0] - 2026-11-24
+### Added
+- **Android Auto dashboard**: a read-only, glanceable list (speed and RPM, coolant and exhaust, fuel and range, economy,
+  trip, DPF regen) refreshed every 3 s, in the units you chose. Built on the Car App Library templates, so it works with
+  a rotary controller and no touchscreen. Because CarMonitor isn't on the Play Store, turn on Android Auto's developer
+  settings and enable *Unknown sources* once.
+
 ## [0.6.1] - 2026-11-24
 ### Added
 - **GPS (optional, off by default)**, read only while logging:
