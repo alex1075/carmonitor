@@ -136,6 +136,13 @@ class ObdService : Service() {
                 if (reloadRequested) { reloadRequested = false; Status.log("vehicle/settings changed, restarting session"); return }
                 val addr = prefs.deviceAddress
                 if (addr == null) { setState("no dongle selected", ""); sleep(5000); continue }
+                // The car's Bluetooth went away while we weren't logging (e.g. the ECU-silence watchdog had
+                // already released the dongle): park instead of re-dialling a dongle that's switched off.
+                val off = carOffAt
+                if (!parked && off != 0L && System.currentTimeMillis() - off >= CAR_OFF_GRACE_MS &&
+                    prefs.carDevices.isNotEmpty() && prefs.btAutostart) {
+                    Status.log("car Bluetooth gone, parking until it reconnects"); parked = true; carOffAt = 0L; continue
+                }
                 if (parked && prefs.btAutostart && prefs.carDevices.isNotEmpty()) {
                     setState("parked", "waiting for the car's Bluetooth"); updateNote("Parked: waiting for the car")
                     sleep(30 * 60_000L); continue          // a car-Bluetooth connect pokes us awake
