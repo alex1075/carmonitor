@@ -132,6 +132,11 @@ class Discoverer(
                 results[c.key] = ProbeResult(c.key, Support.UNSUPPORTED, note = "service ${c.service} not allowed (read-only allowlist)")
                 continue
             }
+            if (!RequestGuard.routeAllowed(c.hdr, c.rax)) {
+                // e.g. OBDb entries on 29-bit or non-CAN addresses (ATSHD016): skip, never abort discovery
+                results[c.key] = ProbeResult(c.key, Support.UNSUPPORTED, note = "header ${c.hdr} not allowed (11-bit CAN only)")
+                continue
+            }
             if (c.service == "01" && c.hdr == "7E0" && c.pid !in sup01 && sup01.isNotEmpty()) {
                 results[c.key] = ProbeResult(c.key, Support.UNSUPPORTED, note = "not in Mode 01 bitmap")
                 continue
@@ -160,7 +165,10 @@ class Discoverer(
     }
 
     private fun probe(key: String, req: String, hdr: String, rax: String?): ProbeResult =
-        when (val r = elm.request(req, hdr, rax)) {
+        when (val r = try { elm.request(req, hdr, rax) } catch (e: RequestGuard.Refused) {
+            // Belt and braces: one refused command must never kill a 1000-probe discovery.
+            return ProbeResult(key, Support.UNSUPPORTED, note = "refused: ${e.message}")
+        }) {
             is ObdResponse.Positive -> ProbeResult(key, Support.SUPPORTED, r.hex())
             is ObdResponse.Negative -> ProbeResult(key, Support.UNSUPPORTED, note = r.meaning)
             ObdResponse.NoData -> ProbeResult(key, Support.NO_RESPONSE)

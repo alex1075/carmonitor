@@ -51,7 +51,7 @@ class LoggerEngine(
     private val polled: List<Command> = buildPolled(set)
 
     private fun buildPolled(set: SignalSet): List<Command> {
-        val known = set.forYear(profile.modelYear, includeDebug = true).filter { profile.supported(it.key) }
+        val known = set.forYear(profile.modelYear, includeDebug = true).filter { profile.supported(it.key) && RequestGuard.routeAllowed(it.hdr, it.rax) }
         if (!cfg.logSweepHits) return known
         val knownKeys = known.map { it.key }.toSet()
         // Sweep hits that no signalset describes: poll as raw candidates so drives can identify them.
@@ -61,7 +61,7 @@ class LoggerEngine(
             val parts = h.key.split(':')
             if (parts.size != 2) continue
             val hdr = parts[0]; val req = parts[1]
-            if (!req.startsWith("22") || req.length != 6) continue
+            if (!req.startsWith("22") || req.length != 6 || !RequestGuard.routeAllowed(hdr, Elm327.defaultRx(hdr))) continue
             sweep += Command(hdr, Elm327.defaultRx(hdr), "22", req.substring(2), freq = 10.0, filter = null, debug = true,
                 validated = false, source = "sweep",
                 signals = listOf(Signal("SWEEP_${hdr}_${req.substring(2)}", "Sweep ${h.key}", "Sweep", Fmt(len = 16))))
