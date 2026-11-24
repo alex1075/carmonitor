@@ -2,7 +2,6 @@ package uk.co.ashunt.carmonitor
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -18,159 +17,51 @@ import android.content.IntentSender
 import android.os.Build
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.view.View
-import android.view.WindowInsets
-import android.widget.ArrayAdapter
-import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import uk.co.ashunt.carmonitor.core.ObdbCatalog
 import uk.co.ashunt.carmonitor.core.VehicleRef
 import uk.co.ashunt.carmonitor.core.Wmi
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import uk.co.ashunt.carmonitor.core.Units
+import uk.co.ashunt.carmonitor.ui.Actions
+import uk.co.ashunt.carmonitor.ui.CarMonitorApp
+import uk.co.ashunt.carmonitor.ui.CarMonitorTheme
+import uk.co.ashunt.carmonitor.ui.UiModel
 import java.io.File
 
-/** Plain framework widgets, no AndroidX: one screen for setup, control and live values. */
-class MainActivity : Activity() {
+/** Material 3 (Compose) screens; dialogs, Bluetooth, SAF and the HA test stay here. */
+class MainActivity : ComponentActivity(), Actions {
 
     companion object {
         const val ACTION_START_FROM_NOTIFICATION = "uk.co.ashunt.carmonitor.START"
     }
 
     private lateinit var prefs: Prefs
-    private lateinit var device: Spinner
-    private lateinit var tank: EditText
-    private lateinit var connLabel: TextView
-    private lateinit var carLabel: TextView
-    private lateinit var btAuto: CheckBox
-    private lateinit var year: EditText
-    private lateinit var sweep: EditText
-    private lateinit var cand: CheckBox
-    private lateinit var boot: CheckBox
-    private lateinit var logSweep: CheckBox
-    private lateinit var status: TextView
-    private lateinit var vehicleLabel: TextView
-    private lateinit var topicBase: EditText
-    private lateinit var devName: EditText
-    private lateinit var live: TextView
-    private lateinit var log: TextView
-    private var devices: List<Pair<String, String>> = emptyList()   // name, address
+    private val model = UiModel()
     private val ui = Handler(Looper.getMainLooper())
     private var pendingExport: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        val pad = (12 * resources.displayMetrics.density).toInt()
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, pad) }
-
-        fun label(t: String) = TextView(this).apply { text = t; setTypeface(typeface, Typeface.BOLD); setPadding(0, pad, 0, 0) }
-        fun edit(v: String, hint: String, type: Int = InputType.TYPE_CLASS_TEXT) =
-            EditText(this).apply { setText(v); this.hint = hint; inputType = type; setSingleLine(true) }
-        fun button(t: String, f: () -> Unit) = Button(this).apply { text = t; setOnClickListener { f() } }
-        fun row(vararg v: View) = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            v.forEach { addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)) }
-        }
-
-        status = TextView(this).apply { textSize = 18f }
-        col.addView(status)
-        col.addView(row(
-            button("Start") { save(); ObdService.start(this, ObdService.ACTION_LOG) },
-            button("Stop") { startService(Intent(this, ObdService::class.java).setAction(ObdService.ACTION_STOP)) },
-        ))
-        col.addView(row(
-            button("Discover") { save(); ObdService.start(this, ObdService.ACTION_DISCOVER, sweep = false) },
-            button("Discover + sweep") { save(); ObdService.start(this, ObdService.ACTION_DISCOVER, sweep = true) },
-        ))
-        col.addView(row(
-            button("Export profile") { export(prefs.profileFile, "cx5-profile.json", "application/json") },
-            button("Export last drive") {
-                val f = prefs.logDir.listFiles()?.maxByOrNull { it.lastModified() }
-                if (f == null) toast("No drives yet") else export(f, f.name, "text/csv")
-            },
-        ))
-        col.addView(row(
-            button("Import overlay JSON") { importOverlay() },
-            button("Import profile") { importProfile() },
-            button("Export app log") { exportLog() },
-        ))
-
-        col.addView(label("Vehicle (OBDb signalset)"))
-        vehicleLabel = TextView(this); col.addView(vehicleLabel)
-        col.addView(row(
-            button("Choose vehicle…") { save(); chooseVehicle() },
-            button("Generic OBD-II only") {
-                AlertDialog.Builder(this).setTitle("Switch to generic OBD-II?")
-                    .setMessage("Only standard J1979 PIDs: no ${prefs.vehicle()?.label ?: "make-specific"} signals (DPF, EGT, oil…), " +
-                        "and Home Assistant gets a separate \"Car\" device. Your current car's profile and fuel settings are kept " +
-                        "and come back when you choose it again.")
-                    .setPositiveButton("Switch to generic") { _, _ ->
-                        prefs.selectVehicle(null, "default.json"); refreshVehicle(); vehicleChanged()
-                    }
-                    .setNegativeButton("Cancel", null).show()
-            },
-        ))
-        col.addView(label("Fuel tank size in litres (from the handbook; needed for remaining fuel and range)"))
-        tank = edit(if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else "", "e.g. 56", InputType.TYPE_CLASS_NUMBER); col.addView(tank)
-        col.addView(label("MQTT topic base and HA device name"))
-        topicBase = edit(prefs.topicBase, "car/my_car"); col.addView(topicBase)
-        devName = edit(prefs.haDeviceName, "My car"); col.addView(devName)
-
-        col.addView(label("OBD dongle (paired devices)"))
-        device = Spinner(this); col.addView(device)
-        col.addView(row(button("Scan & pair…") { scanAndPair() }))
-
-        col.addView(label("Autostart: this car's Bluetooth"))
-        btAuto = CheckBox(this).apply { text = "Start logging when the car's Bluetooth connects"; isChecked = prefs.btAutostart }
-        col.addView(btAuto)
-        carLabel = TextView(this); col.addView(carLabel)
-        col.addView(row(
-            button("Choose car Bluetooth…") { save(); chooseCarDevices() },
-            button("Allow background start…") { save(); linkCompanion() },
-        ))
-        col.addView(label("Home Assistant connection"))
-        connLabel = TextView(this).apply { text = prefs.connectionSummary() }; col.addView(connLabel)
-        col.addView(row(
-            button("Connection settings…") { save(); connectionDialog() },
-            button("Test HA connection") { save(); testConnection() },
-        ))
-        col.addView(label("Model year (picks the OBDb year file; EU VINs have no year code)"))
-        year = edit(prefs.modelYear.toString(), "2017", InputType.TYPE_CLASS_NUMBER); col.addView(year)
-        col.addView(label("Sweep ranges (header:from-to, comma separated)"))
-        sweep = edit(prefs.sweep, "7E0:0300-04FF"); col.addView(sweep)
-        cand = CheckBox(this).apply { text = "Publish unvalidated diesel candidates (raw)"; isChecked = prefs.publishCandidates }; col.addView(cand)
-        boot = CheckBox(this).apply { text = "Start on boot"; isChecked = prefs.autoStart }; col.addView(boot)
-        logSweep = CheckBox(this).apply { text = "Log unidentified sweep hits (raw, for PID hunting)"; isChecked = prefs.logSweepHits }; col.addView(logSweep)
-        col.addView(row(button("Save settings") { save(); toast("Saved. Stop/Start to apply.") }))
-
-        col.addView(label("Live"))
-        live = TextView(this).apply { typeface = Typeface.MONOSPACE; textSize = 12f }; col.addView(live)
-        col.addView(label("Log"))
-        log = TextView(this).apply { typeface = Typeface.MONOSPACE; textSize = 11f }; col.addView(log)
-
-        val root = ScrollView(this).apply { addView(col) }
-        // targetSdk 35+ is edge-to-edge: pad by the status/nav bars and the keyboard.
-        root.setOnApplyWindowInsetsListener { v, insets ->
-            val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
-            v.setPadding(b.left, b.top, b.right, b.bottom)
-            WindowInsets.CONSUMED
-        }
-        setContentView(root)
-        refreshVehicle()
-        refreshCar()
+        enableEdgeToEdge()
+        refresh()
+        setContent { CarMonitorTheme(model.theme) { CarMonitorApp(model, this) } }
         handleIntent(intent)
         askPermissions()
     }
@@ -186,8 +77,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        loadDevices()
-        refreshCar()
+        refresh()
         tick()
     }
 
@@ -196,14 +86,100 @@ class MainActivity : Activity() {
         ui.removeCallbacksAndMessages(null)
     }
 
+    /** Live bits, every second. */
     private fun tick() {
-        val prof = prefs.profile()
-        status.text = "● ${Status.state}  ${Status.detail}\n" +
-            "HA link: ${if (Status.mqtt) "ok" else "—"}   profile: " +
-            (prof?.let { p -> "${p.results.values.count { it.support.name == "SUPPORTED" }} signals, ${p.sweepHits.size} sweep hits" } ?: "none yet")
-        live.text = Status.live.entries.joinToString("\n") { "%-26s %s".format(it.key, it.value) }
-        log.text = Status.logText()
+        model.state = Status.state; model.detail = Status.detail; model.mqtt = Status.mqtt
+        model.dash = Status.dash; model.log = Status.logText()
         ui.postDelayed({ tick() }, 1000)
+    }
+
+    /** Everything that comes from prefs or the profile (on start, resume and after a change). */
+    private fun refresh() {
+        val v = prefs.vehicle()
+        model.vehicle = v?.label ?: "Generic OBD-II"
+        model.vehicleSub = listOfNotNull(prefs.modelYear.toString(),
+            if (v != null) prefs.signalsetFile + (if (prefs.hasSignalset()) "" else " (not downloaded)") else "SAE J1979 only").joinToString(" · ")
+        model.tank = if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else ""
+        val p = prefs.profile()
+        model.vin = p?.vin
+        model.supported = p?.results?.values?.count { it.support.name == "SUPPORTED" } ?: 0
+        model.sweepHits = p?.sweepHits?.size ?: 0
+        model.profileNote = p?.let {
+            "Discovered " + java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.UK).format(java.util.Date(it.createdAtMs)) +
+                " · adapter " + it.adapter
+        } ?: "No profile yet: discovery runs on the next connect"
+        val names = bonded().associate { (n, a) -> a to n }
+        model.dongle = prefs.deviceAddress?.let { a -> "${names[a] ?: "?"}  ($a)" } ?: "No dongle selected"
+        val cars = prefs.carDevices.map { names[it] ?: it }
+        val dongleName = prefs.deviceAddress?.let { names[it] ?: it } ?: "the dongle"
+        model.carTrigger = if (cars.isEmpty()) "Trigger: the dongle only" else "When ${cars.joinToString(" or ")} connects → dial $dongleName"
+        model.linked = isLinked()
+        model.btAutostart = prefs.btAutostart
+        model.connection = prefs.connectionSummary()
+        model.topicBase = prefs.topicBase; model.deviceName = prefs.haDeviceName
+        model.layout = prefs.layout; model.theme = prefs.theme; model.units = prefs.units()
+        model.startOnBoot = prefs.autoStart; model.candidates = prefs.publishCandidates; model.logSweep = prefs.logSweepHits
+        model.modelYear = prefs.modelYear.toString(); model.sweepRanges = prefs.sweep
+    }
+    private fun refreshCar() = refresh()
+
+    // --- Actions (called by the Compose screens) ------------------------------------------
+    override fun start() = ObdService.start(this, ObdService.ACTION_LOG)
+    override fun stop() { startService(Intent(this, ObdService::class.java).setAction(ObdService.ACTION_STOP)) }
+    override fun discover(sweep: Boolean) = ObdService.start(this, ObdService.ACTION_DISCOVER, sweep = sweep)
+    override fun chooseVehicle() {
+        val suggested = prefs.profile()?.vin?.let { Wmi.make(it) } ?: prefs.vehicle()?.make ?: ""
+        val q = EditText(this).apply { setText(suggested); hint = "e.g. CX-5, RAV4, Golf"; setSingleLine(true) }
+        AlertDialog.Builder(this)
+            .setTitle("Find your car in OBDb")
+            .setView(q)
+            .setPositiveButton("Search") { _, _ -> search(q.text.toString(), refresh = false) }
+            .setNeutralButton("Refresh list") { _, _ -> search(q.text.toString(), refresh = true) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    override fun genericVehicle() {
+        AlertDialog.Builder(this).setTitle("Switch to generic OBD-II?")
+            .setMessage("Only standard J1979 PIDs: no ${prefs.vehicle()?.label ?: "make-specific"} signals (DPF, EGT, oil…), " +
+                "and Home Assistant gets a separate \"Car\" device. Your current car's profile and fuel settings are kept " +
+                "and come back when you choose it again.")
+            .setPositiveButton("Switch to generic") { _, _ ->
+                prefs.selectVehicle(null, "default.json"); refresh(); vehicleChanged()
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+    override fun setTank(v: String) { prefs.tankLitres = v.toDoubleOrNull() ?: 0.0 }
+    @SuppressLint("MissingPermission")
+    override fun chooseDongle() {
+        val list = bonded()
+        if (list.isEmpty()) { toast("No paired devices: use Scan & pair"); return }
+        AlertDialog.Builder(this).setTitle("OBD dongle")
+            .setItems(list.map { "${it.first}  (${it.second})" }.toTypedArray()) { _, i ->
+                prefs.deviceAddress = list[i].second; refresh()
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+    override fun setAutostart(on: Boolean) { prefs.btAutostart = on }
+    override fun importProfile() = pickFile("*/*", 13)
+    override fun exportProfile() = export(prefs.profileFile, "carmonitor-profile.json", "application/json")
+    override fun editConnection() = connectionDialog()
+    override fun setTopicBase(v: String) { v.trim().trim('/').takeIf { it.isNotBlank() }?.let { prefs.topicBase = it } }
+    override fun setDeviceName(v: String) { v.trim().takeIf { it.isNotBlank() }?.let { prefs.haDeviceName = it } }
+    override fun setLayout(v: String) { prefs.layout = v }
+    override fun setTheme(v: String) { prefs.theme = v }
+    override fun setUnits(u: Units) { prefs.mph = u.imperialSpeed; prefs.gallons = u.gallons; prefs.fahrenheit = u.fahrenheit }
+    override fun setStartOnBoot(on: Boolean) { prefs.autoStart = on }
+    override fun setCandidates(on: Boolean) { prefs.publishCandidates = on }
+    override fun setLogSweep(on: Boolean) { prefs.logSweepHits = on }
+    override fun setModelYear(v: String) { v.toIntOrNull()?.takeIf { it in 1990..2100 }?.let { prefs.modelYear = it } }
+    override fun setSweepRanges(v: String) { prefs.sweep = v }
+    override fun exportDrive() {
+        val f = prefs.logDir.listFiles()?.maxByOrNull { it.lastModified() }
+        if (f == null) toast("No drives yet") else export(f, f.name, "text/csv")
+    }
+    override fun importOverlay() = pickFile("application/json", 11)
+    private fun pickFile(mime: String, code: Int) {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(mime), code)
     }
 
     private fun askPermissions() {
@@ -214,7 +190,7 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        loadDevices()
+        refresh()
         if (requestCode == 2 && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) scanAndPair()
     }
 
@@ -232,7 +208,7 @@ class MainActivity : Activity() {
     private fun adapter(): BluetoothAdapter? = getSystemService(BluetoothManager::class.java)?.adapter
 
     @SuppressLint("MissingPermission")
-    private fun scanAndPair() {
+    override fun scanAndPair() {
         val need = listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
             .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (need.isNotEmpty()) { requestPermissions(need.toTypedArray(), 2); return }
@@ -256,7 +232,7 @@ class MainActivity : Activity() {
                         val d = deviceExtra(intent) ?: return
                         if (d.bondState == BluetoothDevice.BOND_BONDED) {
                             prefs.deviceAddress = d.address
-                            loadDevices()
+                            refresh()
                             toast("Paired with ${d.name ?: d.address}")
                         }
                     }
@@ -301,59 +277,12 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null).show()
     }
 
-    @SuppressLint("MissingPermission")
-    private fun loadDevices() {
-        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return
-        val bonded = getSystemService(BluetoothManager::class.java)?.adapter?.bondedDevices ?: emptySet()
-        devices = bonded.map { (it.name ?: "?") to it.address }.sortedBy { it.first }
-        device.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
-            devices.map { "${it.first}  (${it.second})" })
-        val i = devices.indexOfFirst { it.second == prefs.deviceAddress }
-        if (i >= 0) device.setSelection(i)
-        else devices.indexOfFirst { it.first.contains("OBD", true) || it.first.contains("ELM", true) || it.first.contains("V-LINK", true) }
-            .takeIf { it >= 0 }?.let { device.setSelection(it) }
-    }
-
-    private fun save() {
-        devices.getOrNull(device.selectedItemPosition)?.let { prefs.deviceAddress = it.second }
-        prefs.modelYear = year.text.toString().toIntOrNull() ?: 2017
-        prefs.sweep = sweep.text.toString()
-        prefs.publishCandidates = cand.isChecked
-        prefs.autoStart = boot.isChecked
-        prefs.logSweepHits = logSweep.isChecked
-        prefs.btAutostart = btAuto.isChecked
-        prefs.tankLitres = tank.text.toString().toDoubleOrNull() ?: 0.0
-        prefs.topicBase = topicBase.text.toString().trim().trim('/').ifBlank { prefs.topicBase }
-        prefs.haDeviceName = devName.text.toString().trim().ifBlank { prefs.haDeviceName }
-    }
-
     /** Tell a running logger to restart with the new vehicle (no-op if it isn't running). */
     private fun vehicleChanged() {
         startService(Intent(this, ObdService::class.java).setAction(ObdService.ACTION_RELOAD))
     }
 
-    private fun refreshVehicle() {
-        val v = prefs.vehicle()
-        vehicleLabel.text = (v?.label ?: "Generic OBD-II (SAE J1979 only)") +
-            (if (v != null) "  ·  ${prefs.signalsetFile}" + (if (prefs.hasSignalset()) "" else "  (not downloaded)") else "")
-        topicBase.setText(prefs.topicBase)
-        tank.setText(if (prefs.tankLitres > 0) "%.0f".format(prefs.tankLitres) else "")
-        devName.setText(prefs.haDeviceName)
-    }
-
     // --- OBDb vehicle picker ------------------------------------------------------
-    private fun chooseVehicle() {
-        val suggested = prefs.profile()?.vin?.let { Wmi.make(it) } ?: prefs.vehicle()?.make ?: ""
-        val q = EditText(this).apply { setText(suggested); hint = "e.g. CX-5, RAV4, Golf"; setSingleLine(true) }
-        AlertDialog.Builder(this)
-            .setTitle("Find your car in OBDb")
-            .setView(q)
-            .setPositiveButton("Search") { _, _ -> search(q.text.toString(), refresh = false) }
-            .setNeutralButton("Refresh list") { _, _ -> search(q.text.toString(), refresh = true) }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     private fun search(query: String, refresh: Boolean) {
         toast(if (refresh) "Refreshing OBDb catalogue…" else "Searching…")
         Thread {
@@ -388,7 +317,7 @@ class MainActivity : Activity() {
                     busy.dismiss()
                     val known = prefs.hasSavedProfile(v, file)
                     prefs.selectVehicle(v, file)
-                    refreshVehicle()
+                    refresh()
                     vehicleChanged()
                     toast(if (known) "${v.label}: saved profile restored, no discovery needed. Topics: ${prefs.topicBase}"
                           else "${v.label}: $file for $year. Topics: ${prefs.topicBase}. Discovery runs on the next connect.")
@@ -400,7 +329,7 @@ class MainActivity : Activity() {
     }
 
     /** App log + this process's logcat + last crash, as one text file. */
-    private fun exportLog() {
+    override fun exportLog() {
         Thread {
             val sb = StringBuilder()
             val p = prefs.profile()
@@ -432,18 +361,6 @@ class MainActivity : Activity() {
         pendingExport = f
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
             .setType(mime).putExtra(Intent.EXTRA_TITLE, name), 10)
-    }
-
-    /** Restore an exported profile: its sweep hits always go into the car's permanent store; a current-format
-     *  profile also becomes the active one, so no discovery is needed. */
-    private fun importProfile() {
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-            .setType("*/*"), 13)
-    }
-
-    private fun importOverlay() {
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-            .setType("application/json"), 11)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -538,7 +455,7 @@ class MainActivity : Activity() {
             if (pass.text.isNotEmpty()) prefs.brokerPass = pass.text.toString()
             prefs.haUrl = url.text.toString().trim().trimEnd('/')
             if (token.text.isNotEmpty()) prefs.haToken = token.text.toString().trim()
-            connLabel.text = prefs.connectionSummary()
+            refresh()
         }
 
         val dlg = AlertDialog.Builder(this).setTitle("Connection settings")
@@ -552,7 +469,7 @@ class MainActivity : Activity() {
     }
 
     /** Check the configured uplink and publish a 'Connection test' sensor HA can show. */
-    private fun testConnection() {
+    override fun testConnection() {
         val t = prefs.scheme()
         val (cfgTopic, cfg) = uk.co.ashunt.carmonitor.core.HaDiscovery.connectionTest(t)
         val now = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.UK).format(java.util.Date())
@@ -610,15 +527,7 @@ class MainActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) emptyList()
         else (adapter()?.bondedDevices ?: emptySet()).map { (it.name ?: "?") to it.address }.sortedBy { it.first }
 
-    private fun refreshCar() {
-        val names = bonded().associate { (n, a) -> a to n }
-        val cars = prefs.carDevices.map { names[it] ?: it }
-        val dongle = prefs.deviceAddress?.let { names[it] ?: it } ?: "no dongle selected"
-        carLabel.text = (if (cars.isEmpty()) "Trigger: the dongle only ($dongle)" else "When ${cars.joinToString(" or ")} connects → dial $dongle") +
-            "\nBackground start: " + (if (isLinked()) "allowed (linked)" else "not linked yet: you'll get a tap-to-start notification")
-    }
-
-    private fun chooseCarDevices() {
+    override fun chooseCarDevices() {
         val list = bonded().filter { it.second != prefs.deviceAddress }
         if (list.isEmpty()) { toast("No other paired devices. Pair the car's Bluetooth (head unit) with this phone first."); return }
         val chosen = list.map { it.second in prefs.carDevices }.toBooleanArray()
@@ -648,7 +557,7 @@ class MainActivity : Activity() {
      * Companion-device link: the system dialog asks once; afterwards Android lets the
      * car-Bluetooth trigger start the logger's foreground service from the background.
      */
-    private fun linkCompanion() {
+    override fun linkCompanion() {
         val addr = linkTarget() ?: run { toast("Pick the dongle or the car's Bluetooth first"); return }
         if (isLinked()) { toast("Already linked"); return }
         val cdm = getSystemService(CompanionDeviceManager::class.java) ?: run { toast("Companion devices not supported on this phone"); return }

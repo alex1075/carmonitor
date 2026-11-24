@@ -66,6 +66,16 @@ class Prefs(private val ctx: Context) {
 
     // --- vehicle (OBDb repo) and HA naming -------------------------------------------
     /** OBDb repo, e.g. "Mazda-CX-5"; "" = generic SAE J1979 only. */
+    // --- appearance & units (display only) ----------------------------------------
+    /** "extended" (big tiles) or "compact" (dense list). */
+    var layout: String get() = str("layout", "extended"); set(v) = put("layout", v)
+    /** "system", "light" or "dark". */
+    var theme: String get() = str("theme", "system"); set(v) = put("theme", v)
+    var mph: Boolean get() = sp.getBoolean("u_mph", false); set(v) = sp.edit().putBoolean("u_mph", v).apply()
+    var gallons: Boolean get() = sp.getBoolean("u_gal", false); set(v) = sp.edit().putBoolean("u_gal", v).apply()
+    var fahrenheit: Boolean get() = sp.getBoolean("u_f", false); set(v) = sp.edit().putBoolean("u_f", v).apply()
+    fun units() = uk.co.ashunt.carmonitor.core.Units(mph, gallons, fahrenheit)
+
     var vehicleRepo: String get() = str("repo", ""); set(v) = put("repo", v)
     var signalsetFile: String get() = str("ssfile", "default.json"); set(v) = put("ssfile", v)
     var topicBase: String get() = str("tbase", TopicScheme.forVehicle(null).base); set(v) = put("tbase", v)

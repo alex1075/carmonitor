@@ -35,6 +35,8 @@ object Status {
     @Volatile var detail = ""
     @Volatile var mqtt = false
     @Volatile var live: Map<String, String> = emptyMap()
+    /** Latest dashboard numbers from the running session, or null when not logging. */
+    @Volatile var dash: uk.co.ashunt.carmonitor.core.DashSnapshot? = null
     private val logLines = ArrayDeque<String>()
     fun log(s: String) = synchronized(logLines) {
         val line = SimpleDateFormat("HH:mm:ss", Locale.UK).format(Date()) + " " + s
@@ -224,6 +226,7 @@ class ObdService : Service() {
                                 Status.live = engine.values.entries.associate { (k, v) ->
                                     k to when (val d = v.first) { is Decoded.Num -> "%.2f".format(Locale.UK, d.v); is Decoded.Text -> d.v }
                                 }
+                                Status.dash = engine.snapshot()
                                 Status.detail = if (engine.tripActive) "trip active" + (if (engine.regenActive) " · REGEN" else "") else "idle"
                                 w.flush()
                             }
@@ -243,7 +246,7 @@ class ObdService : Service() {
                             if (carGone && prefs.carDevices.isNotEmpty() && prefs.btAutostart) parked = true
                             pokedFlag = false
                             !running || discoverRequested != null || restart || reloadRequested
-                        }) } finally { prefs.fuelState = engine.fuel.state() }
+                        }) } finally { prefs.fuelState = engine.fuel.state(); Status.dash = null }
                     }
                 } catch (e: IOException) {
                     Status.log("link lost: ${e.message}")

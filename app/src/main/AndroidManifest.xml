@@ -24,7 +24,7 @@
         android:label="CarMonitor"
         android:icon="@drawable/ic_car"
         android:allowBackup="false"
-        android:theme="@android:style/Theme.Material.Light.DarkActionBar">
+        android:theme="@style/Theme.CarMonitor">
 
         <activity
             android:name=".MainActivity"

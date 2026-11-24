@@ -434,6 +434,17 @@ object SelfTest {
         eq(SweepHits.merge(m, emptyList()).size, 3, "an empty new sweep never erases stored hits")
     }
 
+    fun units() {
+        val imp = Units(imperialSpeed = true, gallons = true, fahrenheit = true)
+        eq(Units.fmt(imp.speed(46.0)), "29", "46 km/h = 29 mph")
+        eq(Units.fmt(imp.temp(83.0)), "181", "83 C = 181 F")
+        eq(Units.fmt(imp.volume(21.4), 1), "4.7", "21.4 L = 4.7 UK gal")
+        eq(Units.fmt(imp.economy(6.0), 1), "47.1", "6 L/100 km = 47.1 UK mpg")
+        eq(Units.fmt(Units().speed(46.0)), "46", "metric passthrough")
+        eq(Units.fmt(1614.0), "1,614", "thousands separator")
+        eq(Units.fmt(null), "—", "missing value")
+    }
+
     fun fuelType() {
         eq(FuelTypes.fromJ1979("DSL"), FuelType.DIESEL, "0151 DSL = diesel (real CX-5)")
         eq(FuelTypes.fromJ1979("GAS"), FuelType.PETROL, "0151 GAS = petrol")
@@ -464,6 +475,7 @@ object SelfTest {
         fuelType()
         pollTiers(lib)
         sweepStore()
+        units()
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,

@@ -3,6 +3,15 @@ package uk.co.ashunt.carmonitor.core
 import java.io.IOException
 import java.util.Locale
 
+data class DashSnapshot(
+    val tripActive: Boolean, val regenActive: Boolean, val tripKm: Double, val tripStartedAt: Long?,
+    val remainingL: Double?, val rangeKm: Double?, val tripLPer100: Double?, val avgLPer100: Double?,
+    val numbers: Map<String, Double>,
+) {
+    /** First present signal among [ids] (OBDb names differ per car: VSS vs CX5_VSS). */
+    fun first(vararg ids: String): Double? = ids.firstNotNullOfOrNull { numbers[it] }
+}
+
 data class LoggerConfig(
     val publishDefaults: Boolean = true,        // DefaultSignals (core J1979 + OBDb suggestedMetric) get HA sensors
     val publishAll: Boolean = false,            // every supported signal gets a sensor
@@ -97,6 +106,15 @@ class LoggerEngine(
     var tripActive = false; private set
     private var rpmAboveSince: Long? = null
     private var tripKm = 0.0
+    private var tripStartedAt: Long? = null
+
+    /** What the phone's dashboard (and Android Auto) shows: metric, raw numbers; the UI converts units. */
+    fun snapshot(): DashSnapshot = DashSnapshot(
+        tripActive = tripActive, regenActive = regenActive, tripKm = tripKm, tripStartedAt = tripStartedAt,
+        remainingL = fuel.remainingLitres(fuelVal), rangeKm = fuel.rangeKm(fuelVal),
+        tripLPer100 = fuel.tripLPer100, avgLPer100 = fuel.fillToFillLPer100 ?: fuel.longRunLPer100,
+        numbers = values.entries.mapNotNull { (k, v) -> (v.first as? Decoded.Num)?.let { k to it.v } }.toMap(),
+    )
     private var lastSpeedTs: Long? = null
     private var tripRegen = false
     private var tripMaxSoot: Double? = null
@@ -279,6 +297,7 @@ class LoggerEngine(
     }
 
     private fun startTrip(t: Long) {
+        tripStartedAt = t
         tripActive = true; tripKm = 0.0; lastSpeedTs = null; tripRegen = false; tripMaxSoot = null
         fuel.startTrip()
         log("trip START")
