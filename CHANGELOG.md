@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0] - 2026-11-24
+### Changed
+- **New Material 3 interface** (Jetpack Compose): Drive, Car and Home Assistant tabs, cards, switches and a Start/Stop button.
+- Settings save as you change them (no Save button).
+### Added
+- **Layout**: Extended (large tiles) or Compact (dense list). **Theme**: System, Light or Dark.
+- **Units** for the phone's display: km/h or mph, litres or UK gallons (economy in mpg), °C or °F. HA still receives metric.
+- Drive screen: live speed, RPM, coolant, exhaust, fuel with range and economy, DPF and trip, plus the app log.
+### Docs
+- README and wiki are car-agnostic; the CX-5 page is now a worked example.
+
 ## [0.5.6] - 2026-11-24
 ### Removed
 - "Legacy CX-5 Pi-logger topics": every car, the CX-5 included, uses Home Assistant discovery (trip, faults, regen).

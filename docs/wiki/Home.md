@@ -11,7 +11,7 @@ Home Assistant over MQTT. It works with any car in [OBDb](https://github.com/OBD
 **Going further**
 - [[Discovery and sweep|Discovery-and-Sweep]]: what the probe does and how to read the profile
 - [[Overlays and validating PIDs|Overlays-and-Validating-PIDs]]: adding manufacturer PIDs that OBDb doesn't have yet
-- [[Mazda CX-5 2.2 SkyActiv-D|Mazda-CX-5-SkyActiv-D]]: the diesel preset this started from
+- [[Example: Mazda CX-5 2.2 diesel|Mazda-CX-5-SkyActiv-D]]: a worked example of hunting manufacturer PIDs
 - [[Safety|Safety]]: why the app can't write to your car
 - [[Troubleshooting|Troubleshooting]]
 - [[Development|Development]]: build, tests, release signing

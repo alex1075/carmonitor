@@ -37,19 +37,21 @@ Discovery also saves them in the profile.
 1. Pair the dongle, either in Android Bluetooth settings or in the app with **Scan & pair…** (ignition on). Scanning asks for *Nearby devices* permission, declared `neverForLocation`, so no location access.
 2. Install the APK (from [Releases](../../releases), or add the repo in Obtainium) and grant the Bluetooth and notification
    permissions.
-3. **Vehicle → Choose vehicle…** and search (for example `RAV4`, `Golf`, `CX-5`). The make is pre-filled from the VIN once discovery
+3. **Car → Change vehicle** and search (for example `RAV4`, `Golf`, `Octavia`). The make is pre-filled from the VIN once discovery
    has run. Set the **model year** first: it selects the OBDb year file, and EU/JDM VINs carry no year code. If OBDb doesn't have your car,
-   use **Generic OBD-II only**.
-4. **Connection settings…** offers two ways to reach Home Assistant. Then tap **Test HA connection**; a *Connection test* sensor should appear on the car's HA device.
+   use **Generic OBD-II**.
+4. **Home Assistant → Edit connection** offers two ways to reach Home Assistant. Then tap **Send test**; a *Connection test* sensor should appear on the car's HA device.
    - **MQTT broker:** HA's Mosquitto add-on, ideally over Tailscale/NetBird rather than an open port, with a username and password.
    - **Home Assistant API:** your HA URL plus a **long-lived access token** (HA → Profile → Security). The app publishes through HA's
      `mqtt.publish` service, so you only need HTTPS to HA: no broker port and no VPN. Updates are batched every 3 s.
 
    The password and token are masked on screen and stored encrypted with the Android Keystore.
-5. Engine on → **Discover**. Logging starts when discovery finishes. **Discover + sweep** also scans Mode 22 DID
-   ranges you choose (Settings), which helps find manufacturer values that OBDb doesn't document yet.
-6. **Autostart:** under *Choose car Bluetooth…*, tick the car's own Bluetooth (for example the Mazda CMU). When it connects to the
-   phone at ignition, CarMonitor starts and dials the OBD dongle. Tap **Allow background start…** once (Android's companion-device
+5. Engine on → **Car → Discover**. Logging starts when discovery finishes. **Discover + sweep** also scans Mode 22 DID
+   ranges you choose (Home Assistant → Advanced), which helps find manufacturer values that OBDb doesn't document yet.
+   Each car's profile is saved, and sweep results are kept per VIN, so switching cars or reinstalling (**Import profile**)
+   never means discovering again.
+6. **Autostart:** under **Car → Car Bluetooth**, tick the car's own Bluetooth (its head unit). When it connects to the
+   phone at ignition, CarMonitor starts and dials the OBD dongle. Tap **Allow background** once (Android's companion-device
    dialog) so this works with the app closed. Without it you get a tap-to-start notification instead.
 7. Turn off battery optimisation for the app. Between drives the service also retries the dongle every 20 s.
 
@@ -59,21 +61,31 @@ The default topic base is `car/<make_model>` (for example `car/toyota_rav4`) and
 in the app. Sensors appear through MQTT discovery under that device:
 
 - Signals OBDb marks with a `suggestedMetric`, plus core J1979 values (RPM, speed, coolant, oil, intake, battery voltage, load,
-  fuel level, MIL, and DPF pressure/temperatures and regen status where the car has them). Tick *Publish every supported signal* for everything.
+  fuel level, MIL, and DPF pressure/temperatures and regen status where the car has them). Every other supported signal gets a sensor too, so nothing is lost
+  if you archive Home Assistant's history (for example to InfluxDB).
 - Trip active / trip distance / last trip distance (km), fault count / codes / pending, and on diesels *DPF regen active* and
   *last trip regen*.
 - `<base>/logger/status` is the availability topic, with a last-will message.
 
-**Legacy CX-5 preset:** choosing `Mazda-CX-5` applies the old Pi-logger layout (`mazda/cx5/*`, miles, device
-`mazda_cx5`), so an existing YAML package keeps working. Untick *Legacy CX-5 topics* to switch to the generic layout.
+## The app
+
+Three tabs, Material 3:
+- **Drive:** status, speed, RPM, coolant and exhaust temperature, fuel, range and economy, DPF and the current trip, with a
+  Start/Stop button. The app log is behind the icon at the top.
+- **Car:** vehicle and tank size, OBD dongle, autostart, and the discovery profile (discover, sweep, import, export).
+- **Home Assistant:** connection, naming, appearance, units, options, advanced settings, exports.
+
+**Appearance:** *Extended* (large tiles) or *Compact* (one dense list) layout, and System, Light or Dark theme.
+**Units:** km/h or mph, litres or UK gallons (economy then shows as mpg), °C or °F. Units only change what the phone shows:
+Home Assistant always receives metric and converts with its own unit settings.
 
 ## Overlays: manufacturer PIDs OBDb doesn't have yet
 
 An overlay is a JSON file in the OBDb v3 schema with two extra fields, `validated` and `note`. Its commands override OBDb's commands with the
 same header and request. Unvalidated commands are published only as raw diagnostic sensors (`u16` state, hex in the attributes) and in
 the per-drive CSV. That lets you compare them against FORScan or Car Scanner before trusting the scaling. Then set
-`"validated": true`, import it (**Import overlay JSON**) and run Discover again. Bundled: `overlay/Mazda-CX-5.json` (2.2 SkyActiv-D
-DPF soot, regen-distance and EGT candidates). If you confirm a PID, consider contributing it to OBDb.
+`"validated": true`, import it (**Import overlay JSON**) and run Discover again. Bundled example: `overlay/Mazda-CX-5.json` (2.2 SkyActiv-D
+DPF soot, regen-distance and EGT candidates), the car the project was first tested on. If you confirm a PID, consider contributing it to OBDb.
 
 ## Safety
 
