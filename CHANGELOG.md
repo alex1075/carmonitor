@@ -1,6 +1,17 @@
 # Changelog
 
-## [0.5.3] - 2026-11-24
+## [0.5.5] - 2026-11-24
+### Added
+- **Saved profile per car**: each vehicle keeps its own discovery profile, sweep hits and fuel settings (tank,
+  fuel state). Switching back to a car the app already knows restores them, with no re-discovery.
+- **Tiered polling**: speed, RPM, coolant and fuel inputs every 3 s; Home Assistant-visible signals every 15 s;
+  diagnostics and sweep DIDs every 60 s. On a slow ELM327 the dashboard values no longer wait ~35 s for a full cycle.
+### Changed
+- "Generic OBD-II only" asks for confirmation.
+- Changing the vehicle restarts a running session straight away with the new signals and topics, instead of the
+  old car's commands carrying on until the next drive.
+
+## [0.5.4] - 2026-11-24
 ### Fixed
 - Discovery looped forever and never logged: an OBDb entry on a non-11-bit header (ATSHD016) was refused by the
   read-only guard, which aborted the whole discovery, so no profile was saved and the next connect started again.

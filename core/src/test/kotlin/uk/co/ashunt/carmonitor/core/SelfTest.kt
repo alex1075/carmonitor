@@ -407,6 +407,23 @@ object SelfTest {
         eq(eng.pollCount, 3, "RPM + overlay 044B + sweep 0594 polled")
     }
 
+    fun pollTiers(lib: SignalSet) {
+        val fake = FakeCx5(); val elm = Elm327(fake).also { it.init() }
+        val prof = Discoverer(elm, lib, DiscoverOptions(yearOverride = 2017, delayMs = 0), sleep = {}).run()
+        var now = 5_000_000L
+        val eng = LoggerEngine(elm, lib, prof, { _, _, _ -> }, TopicScheme.MAZDA_CX5_LEGACY,
+            LoggerConfig(minGapMs = 0, publishMinIntervalMs = 0), now = { now }, sleep = { now += it })
+        fake.rpm = 1500.0
+        fake.sent.clear()
+        repeat(400) { eng.step(); now += 200 }          // ~200 ms per request, like a v1.5 clone
+        val rpm = fake.sent.count { it == "010C" }
+        val slow = fake.sent.count { it == "2203F4" }    // debug EGT DID: slow tier
+        check(rpm >= 4 * slow * 3, "RPM polled far more often than diagnostics: rpm=$rpm slow=$slow")
+        check(slow in 1..4, "diagnostic DID polled about once a minute: $slow")
+        val (f, m, s) = eng.tierCounts
+        check(f in 1..10 && m > 0 && s > 0, "tiers fast=$f medium=$m slow=$s")
+    }
+
     fun fuelType() {
         eq(FuelTypes.fromJ1979("DSL"), FuelType.DIESEL, "0151 DSL = diesel (real CX-5)")
         eq(FuelTypes.fromJ1979("GAS"), FuelType.PETROL, "0151 GAS = petrol")
@@ -435,6 +452,7 @@ object SelfTest {
         fuel(lib, prof)
         realCar(lib)
         fuelType()
+        pollTiers(lib)
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,

@@ -76,14 +76,40 @@ class Prefs(private val ctx: Context) {
 
     fun scheme() = TopicScheme(topicBase.trim('/'), haDeviceId, haDeviceName, vehicle()?.model, legacyTopics)
 
-    /** Switch vehicle: reset HA naming to that car's defaults (CX-5 keeps the Pi-logger preset). */
+    /** Switch vehicle: reset HA naming to that car's defaults (CX-5 keeps the Pi-logger preset).
+     *  Each car keeps its own discovery profile and fuel settings, so switching back to a car the app
+     *  already knows needs no re-discovery. */
     fun selectVehicle(v: VehicleRef?, file: String) {
+        stashVehicle()
         vehicleRepo = v?.repo ?: ""
         signalsetFile = file
         val s = if (v?.repo == "Mazda-CX-5") TopicScheme.MAZDA_CX5_LEGACY else TopicScheme.forVehicle(v)
         topicBase = s.base; haDeviceId = s.deviceId; haDeviceName = s.deviceName; legacyTopics = s.legacy
-        profileFile.delete()          // a profile belongs to one car's signalset
-        sp.edit().remove("fuelstate").remove("tank").remove("diesel").apply()
+        restoreVehicle()
+    }
+
+    private val profilesDir get() = File(ctx.filesDir, "profiles").apply { mkdirs() }
+    /** One slot per vehicle repo + signalset file (a profile belongs to one signalset). */
+    private fun vehicleKey() = (vehicleRepo.ifBlank { "generic" } + "_" + signalsetFile.removeSuffix(".json"))
+        .replace(Regex("[^A-Za-z0-9_.-]"), "_")
+    private fun stashVehicle() {
+        val k = vehicleKey()
+        val saved = File(profilesDir, "$k.json")
+        if (profileFile.exists()) profileFile.copyTo(saved, overwrite = true)
+        sp.edit().putFloat("tank@$k", sp.getFloat("tank", 0f)).putBoolean("diesel@$k", sp.getBoolean("diesel", false))
+            .putString("fuelstate@$k", sp.getString("fuelstate", "{}")).apply()
+    }
+    private fun restoreVehicle() {
+        val k = vehicleKey()
+        val saved = File(profilesDir, "$k.json")
+        if (saved.exists()) saved.copyTo(profileFile, overwrite = true) else profileFile.delete()
+        sp.edit().putFloat("tank", sp.getFloat("tank@$k", 0f)).putBoolean("diesel", sp.getBoolean("diesel@$k", false))
+            .putString("fuelstate", sp.getString("fuelstate@$k", "{}")).apply()
+    }
+    /** True if this vehicle already has a saved profile (switching to it skips discovery). */
+    fun hasSavedProfile(v: VehicleRef?, file: String): Boolean {
+        val k = ((v?.repo ?: "").ifBlank { "generic" } + "_" + file.removeSuffix(".json")).replace(Regex("[^A-Za-z0-9_.-]"), "_")
+        return File(profilesDir, "$k.json").exists() || (k == vehicleKey() && profileFile.exists())
     }
 
     // --- fuel ------------------------------------------------------------------------
