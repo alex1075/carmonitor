@@ -37,7 +37,7 @@ class CarDashService : CarAppService() {
 
 class DashScreen(ctx: CarContext) : Screen(ctx) {
     private val ui = Handler(Looper.getMainLooper())
-    private val tick = object : Runnable { override fun run() { invalidate(); ui.postDelayed(this, 3000) } }
+    private val tick = object : Runnable { override fun run() { invalidate(); ui.postDelayed(this, 1000) } }
 
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {

@@ -1,6 +1,6 @@
 # Android Auto
 
-CarMonitor adds a **read-only dashboard** to Android Auto: one list, refreshed every 3 s, in the units you chose in the app.
+CarMonitor adds a **read-only dashboard** to Android Auto: one list, refreshed every second, in the units you chose in the app.
 
 | Row | Shows |
 |---|---|

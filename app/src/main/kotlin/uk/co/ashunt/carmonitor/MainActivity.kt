@@ -86,11 +86,11 @@ class MainActivity : ComponentActivity(), Actions {
         ui.removeCallbacksAndMessages(null)
     }
 
-    /** Live bits, every second. */
+    /** Live bits, twice a second (the fast poll tier runs at 0.5 s). */
     private fun tick() {
         model.state = Status.state; model.detail = Status.detail; model.mqtt = Status.mqtt
         model.dash = Status.dash; model.log = Status.logText()
-        ui.postDelayed({ tick() }, 1000)
+        ui.postDelayed({ tick() }, 500)
     }
 
     /** Everything that comes from prefs or the profile (on start, resume and after a change). */

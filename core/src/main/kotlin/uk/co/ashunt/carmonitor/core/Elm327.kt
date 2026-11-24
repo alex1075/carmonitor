@@ -66,7 +66,7 @@ class StreamLink(private val input: InputStream, private val output: OutputStrea
 
 sealed class ObdResponse {
     /** [data] = payload after the positive-response echo (e.g. after "62 04 2B"). */
-    data class Positive(val data: ByteArray, val from: String?) : ObdResponse() {
+    data class Positive(val data: ByteArray, val from: String?, val frames: Int = 1) : ObdResponse() {
         override fun equals(other: Any?) = other is Positive && data.contentEquals(other.data) && from == other.from
         override fun hashCode() = data.contentHashCode()
         fun hex() = data.toHex()
@@ -104,6 +104,20 @@ class Elm327(
 
     private var header: String? = null
     private var rxFilter: String? = null
+    /** The header the adapter is set to now; the logger polls one ECU's requests together to save ATSH round trips. */
+    val currentHeader: String? get() = header
+
+    // Response counts ("010C1"): the adapter returns as soon as one frame arrives instead of waiting out its
+    // timeout for other ECUs. Used only for requests already seen to answer in a single frame, and dropped
+    // for a request (or the whole adapter) that answers badly with it.
+    private val singleFrame = HashSet<String>()
+    private val noCount = HashSet<String>()
+    private var countFailures = 0
+    /** False once the adapter has failed response counts repeatedly; then requests go out plain. */
+    var responseCounts = true; private set
+    /** Requests sent since init, and the total time spent in them (for the poll-rate log line). */
+    var requests = 0L; private set
+    var requestNanos = 0L; private set
     var adapterId: String = ""; private set
     /** AT commands the adapter rejected during init (a sign of a poor clone). */
     var adapterWarnings: List<String> = emptyList(); private set
@@ -151,19 +165,35 @@ class Elm327(
         val req = RequestGuard.normalise(hex)
         RequestGuard.check(req)
         ensureHeader(hdr, rax)
-        var attempt = 0
-        while (true) {
-            link.send(req)
-            val raw = link.readUntilPrompt(timeoutMs)
-            val r = parse(req, raw, rax)
-            if (r is ObdResponse.Negative && r.nrc == 0x78 && attempt < retriesOnPending) {
-                attempt++; Thread.sleep(200); continue
+        val key = "$hdr:$req"
+        val t0 = System.nanoTime()
+        try {
+            if (responseCounts && rax != null && key in singleFrame && key !in noCount) {
+                val r = exchange(req + "1", req, rax)
+                val busy = r is ObdResponse.Negative && (r.nrc == 0x78 || r.nrc == 0x21)
+                if (r is ObdResponse.Positive || (r is ObdResponse.Negative && !busy)) return r
+                if (!busy) {
+                    // Truncated, NO DATA or "?" with the count: never use it for this request again.
+                    noCount += key
+                    if (++countFailures >= 5) { responseCounts = false; log("adapter: response counts unreliable, turned off") }
+                }
             }
-            if (r is ObdResponse.Negative && r.nrc == 0x21 && attempt < retriesOnPending) {
-                attempt++; Thread.sleep(100); continue
+            var attempt = 0
+            while (true) {
+                val r = exchange(req, req, rax)
+                if (r is ObdResponse.Negative && (r.nrc == 0x78 || r.nrc == 0x21) && attempt < retriesOnPending) {
+                    attempt++; Thread.sleep(if (r.nrc == 0x78) 200 else 100); continue
+                }
+                if (r is ObdResponse.Positive && r.frames == 1) singleFrame += key
+                return r
             }
-            return r
-        }
+        } finally { requests++; requestNanos += System.nanoTime() - t0 }
+    }
+
+    private fun exchange(sent: String, req: String, rax: String?): ObdResponse {
+        RequestGuard.check(sent)
+        link.send(sent)
+        return parse(req, link.readUntilPrompt(timeoutMs), rax)
     }
 
     override fun close() = link.close()
@@ -206,19 +236,23 @@ class Elm327(
                 }
             }
             for ((id, buf) in msgs) expectLen[id]?.let { n -> while (buf.size > n) buf.removeAt(buf.size - 1) }
+            // A multi-frame message that stopped early (e.g. a response count cut it off) is not a reply.
+            val short = msgs.filter { (id, buf) -> expectLen[id]?.let { buf.size < it } == true }.map { it.second }.toSet()
             val mine = if (rax != null) msgs.filter { it.first == rax } else msgs
             if (mine.isEmpty()) {
                 if (errorText != null && msgs.isEmpty()) return ObdResponse.Error(errorText)
                 return ObdResponse.NoData
             }
             val pos = mine.lastOrNull { it.second.isNotEmpty() && it.second[0] == svc + 0x40 }
+            if (pos != null && pos.second in short) return ObdResponse.Error("truncated")
             if (pos != null) {
                 val p = pos.second
                 val echo = when (svc) { 0x22 -> 3; 0x01, 0x09 -> 2; else -> 1 }
                 if (p.size < echo) return ObdResponse.Error("short reply")
                 val reqBytes = req.hexToBytes().map { it.toInt() and 0xFF }
                 for (k in 1 until echo) if (p[k] != reqBytes[k]) return ObdResponse.Error("echo mismatch")
-                return ObdResponse.Positive(p.drop(echo).map { it.toByte() }.toByteArray(), pos.first)
+                val frames = if (p.size <= 7) 1 else 1 + (p.size - 6 + 6) / 7   // first frame holds 6, then 7 each
+                return ObdResponse.Positive(p.drop(echo).map { it.toByte() }.toByteArray(), pos.first, frames)
             }
             val neg = mine.lastOrNull { it.second.size >= 3 && it.second[0] == 0x7F }
             if (neg != null) return ObdResponse.Negative(neg.second[1], neg.second[2])
