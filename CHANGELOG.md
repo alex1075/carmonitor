@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.1] - 2026-11-24
+### Fixed
+- **Exhaust and DPF sensors flicking to unavailable in Home Assistant.** On a busy adapter the slow polling tier could be
+  starved for minutes, longer than HA's 3-minute expiry. Now every fourth request goes to the most overdue command
+  whatever its tier, exhaust-temperature and particulate-filter signals poll in the 15 s tier, and slow diagnostic
+  sensors get a 15-minute expiry.
+- Android Auto docs: *Unknown sources* doesn't apply to template apps; the install has to be marked as from Google Play
+  (Obtainium + Shizuku, or `pm install -i com.android.vending`). See the wiki.
+
 ## [0.7.0] - 2026-11-24
 ### Added
 - **Android Auto dashboard**: a read-only, glanceable list (speed and RPM, coolant and exhaust, fuel and range, economy,
