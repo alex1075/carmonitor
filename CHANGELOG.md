@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3] - 2026-11-24
+### Fixed
+- Discovery looped forever and never logged: an OBDb entry on a non-11-bit header (ATSHD016) was refused by the
+  read-only guard, which aborted the whole discovery, so no profile was saved and the next connect started again.
+  Such entries are now skipped (noted in the profile), and a refused command can never abort discovery.
+- The dongle's own Bluetooth connect no longer counts as a car trigger while discovery is running.
+
 ## [0.5.2] - 2026-11-23
 ### Changed
 - No vehicle-specific fuel defaults: tank size is a setting for every car (OBDb carries signals, not specs), and

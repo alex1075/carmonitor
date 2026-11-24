@@ -56,5 +56,10 @@ object RequestGuard {
         if (payloadBytes !in lens) throw Refused("bad length for service $svc: $c")
     }
 
+    private val HDR11 = Regex("^[0-9A-F]{3}$")
+    /** Can we address this ECU at all? Only 11-bit CAN headers/filters are allowed (ATSH/ATCRA rules above). */
+    fun routeAllowed(hdr: String, rax: String?): Boolean =
+        HDR11.matches(hdr.uppercase()) && (rax == null || HDR11.matches(rax.uppercase()))
+
     fun isAllowed(raw: String): Boolean = try { check(raw); true } catch (_: Refused) { false }
 }

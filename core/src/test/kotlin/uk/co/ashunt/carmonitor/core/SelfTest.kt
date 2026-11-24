@@ -183,6 +183,14 @@ object SelfTest {
             "discovery sent nothing but reads")
         check(fake.sent.none { !RequestGuard.isAllowed(it) }, "discovery skipped non-allowlisted services instead of sending them")
         check(prof.results.values.any { it.note?.contains("not allowed") == true }, "skipped services recorded in the profile")
+        // Real 2026-11-24 bug: an OBDb entry on header D016 threw at ATSHD016 and aborted discovery in a loop.
+        val odd = SignalSet.parse("odd", """{"commands":[{"hdr":"D016","cmd":{"22":"1234"},"freq":1,
+            "signals":[{"id":"ODD","path":"x","fmt":{"len":8}}]}]}""")
+        val p2 = Discoverer(Elm327(FakeCx5()).also { it.init() }, SignalSet.merge("m", lib, odd),
+            DiscoverOptions(yearOverride = 2017, delayMs = 0), sleep = {}).run()
+        check(p2.results.values.any { it.note?.startsWith("header D016") == true }, "29-bit/odd header skipped, discovery completed")
+        eq(p2.results["7E0:010C"]?.support, Support.SUPPORTED, "discovery carries on past the odd header")
+        check(!RequestGuard.routeAllowed("D016", null) && RequestGuard.routeAllowed("7E0", "7E8"), "routeAllowed")
         val again = VehicleProfile.fromJson(prof.toJson())
         eq(again.results.size, prof.results.size, "profile round-trip")
         eq(again.sweepHits, prof.sweepHits, "sweep hits round-trip")

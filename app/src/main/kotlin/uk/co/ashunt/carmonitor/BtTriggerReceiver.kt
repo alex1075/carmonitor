@@ -37,7 +37,8 @@ class BtTriggerReceiver : BroadcastReceiver() {
         if (intent.action != BluetoothDevice.ACTION_ACL_CONNECTED) return
         if (!prefs.isTrigger(dev.address)) return
         // Our own dial-out to the dongle also raises ACL_CONNECTED: ignore it while already logging.
-        if (dev.address == prefs.deviceAddress && Status.state.startsWith("logging")) return
+        if (dev.address == prefs.deviceAddress &&
+            (Status.state.startsWith("logging") || Status.state.startsWith("discovering"))) return
         val name = nameOf(ctx, dev)
         Status.log("car Bluetooth connected: $name, starting logger")
         try {
