@@ -82,6 +82,7 @@ class LoggerEngine(
         return known + sweep
     }
     private val nextDue = HashMap<String, Long>()
+    private var picks = 0L
 
     /** 2 = fast, 1 = medium, 0 = slow. A slow ELM327 manages ~5 requests/s, so not everything can be fast. */
     private val tier: Map<String, Int> = polled.associate { c ->
@@ -89,7 +90,7 @@ class LoggerEngine(
             c.source == "sweep" -> 0
             c.signals.any { it.id in FAST_IDS } -> 2
             c.signals.any { it.id in FUEL_INPUTS || it.id in POST_DPF_EGT || it.id == "PF_REGEN_STAT" ||
-                it.id == "MZD_SOOT_GL" || DefaultSignals.include(it) } -> 1
+                it.id == "MZD_SOOT_GL" || isExhaustHealth(it.id) || DefaultSignals.include(it) } -> 1
             else -> 0
         }
     }
@@ -97,6 +98,8 @@ class LoggerEngine(
         val base = when (tier[c.key]) { 2 -> cfg.fastMs; 1 -> maxOf(cfg.mediumMs, (c.freq * 1000).toLong()); else -> maxOf(cfg.slowMs, (c.freq * 1000).toLong()) }
         return (base * cfg.freqScale).toLong().coerceAtLeast(500)
     }
+    /** HA expire_after: slow diagnostics may legitimately go minutes between polls on a busy adapter. */
+    internal fun expireFor(c: Command): Int = if ((tier[c.key] ?: 0) >= 1) 180 else 900
     /** Commands per tier (fast, medium, slow), for the log. */
     val tierCounts: Triple<Int, Int, Int> get() = Triple(tier.values.count { it == 2 }, tier.values.count { it == 1 }, tier.values.count { it == 0 })
     val values = LinkedHashMap<String, Pair<Decoded, Long>>()   // signal id -> value, ts
@@ -149,7 +152,7 @@ class LoggerEngine(
                 if (cfg.publishCandidates) HaDiscovery.forRaw(topics, c.key).let { sink.publish(it.first, it.second, true) }
                 continue
             }
-            for (s in c.signals) if (wantsSensor(s)) HaDiscovery.forSignal(topics, s).let { sink.publish(it.first, it.second, true) }
+            for (s in c.signals) if (wantsSensor(s)) HaDiscovery.forSignal(topics, s, expireFor(c)).let { sink.publish(it.first, it.second, true) }
         }
         log("polling ${polled.size} commands")
     }
@@ -173,6 +176,9 @@ class LoggerEngine(
         if (polled.isEmpty()) { sleep(1000); return }
         // Among the commands that are due, the highest tier goes first, then the most overdue, so a
         // saturated adapter starves diagnostics rather than speed/RPM.
+        // Every FAIR_EVERY-th pick ignores tiers and takes the most overdue command, so a saturated
+        // adapter slows diagnostics down but never starves them (HA would mark them unavailable).
+        val fair = ++picks % FAIR_EVERY == 0L
         var c: Command? = null
         for (x in polled) {
             val d = nextDue[x.key] ?: 0L
@@ -180,6 +186,7 @@ class LoggerEngine(
             val best = c
             if (best == null) { c = x; continue }
             val tx = tier[x.key] ?: 0; val tb = tier[best.key] ?: 0
+            if (fair) { if (d < (nextDue[best.key] ?: 0L)) c = x; continue }
             if (tx > tb || (tx == tb && d < (nextDue[best.key] ?: 0L))) c = x
         }
         if (c == null) { sleep(minOf(polled.minOf { nextDue[it.key] ?: 0L } - t, 500).coerceAtLeast(1)); return }
@@ -352,6 +359,10 @@ private val FAST_IDS = setOf("RPM", "VSS", "ECT", "MAF", "MAFA", "MZD_INJ_QTY", 
     "VFUEL_RATE", "CX5_ENG_FUEL_RATE")
 private val FUEL_INPUTS = setOf("MZD_INJ_QTY", "INJ_QTY", "FUEL_RATE", "FUEL_RATE_ALT", "VFUEL_RATE", "CX5_ENG_FUEL_RATE", "MAF", "MAFA", "FLI", "CX5_FLI", "CX5_FLV")
 
+private const val FAIR_EVERY = 4
+/** Exhaust temperatures and particulate-filter readings: worth watching live on a diesel. */
+internal fun isExhaustHealth(id: String): Boolean =
+    id.startsWith("EGT") || id.startsWith("DPF") || id.contains("_EGT") || id.contains("_DPF") || id.contains("SOOT")
 private val POST_DPF_EGT = listOf("MZD_EGT_POST_DPF", "DPF1_OUTT", "CX5_EXH_GAS_T_2")
 
 object Dtc {

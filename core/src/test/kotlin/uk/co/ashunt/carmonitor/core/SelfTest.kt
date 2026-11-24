@@ -235,7 +235,7 @@ object SelfTest {
         // Link loss propagates
         fake.alive = false
         var threw = false
-        try { repeat(5) { eng.step() } } catch (_: java.io.IOException) { threw = true }
+        try { repeat(5) { t += 20_000; eng.step() } } catch (_: java.io.IOException) { threw = true }
         check(threw, "link loss surfaces as IOException")
     }
 
@@ -424,6 +424,22 @@ object SelfTest {
         check(f in 1..10 && m > 0 && s > 0, "tiers fast=$f medium=$m slow=$s")
     }
 
+    fun noStarvation(lib: SignalSet) {
+        // Fast/medium tiers saturated (everything due every 0.5 s): slow diagnostics must still get polled.
+        val fake = FakeCx5(); val elm = Elm327(fake).also { it.init() }
+        val prof = Discoverer(elm, lib, DiscoverOptions(yearOverride = 2017, delayMs = 0), sleep = {}).run()
+        var now = 5_000_000L
+        val eng = LoggerEngine(elm, lib, prof, { _, _, _ -> }, TopicScheme.MAZDA_CX5_LEGACY,
+            LoggerConfig(minGapMs = 0, publishMinIntervalMs = 0, fastMs = 500, mediumMs = 500), now = { now }, sleep = { now += it })
+        fake.rpm = 1500.0
+        fake.sent.clear()
+        repeat(2000) { eng.step(); now += 200 }        // 400 s on a saturated adapter
+        val (f, m, s) = eng.tierCounts
+        val distinct = fake.sent.toSet().size
+        check(distinct >= f + m + s / 2, "slow tier still reached when saturated: distinct=$distinct of ${f + m + s}")
+        check(isExhaustHealth("EGT11") && isExhaustHealth("DPF1_DP") && isExhaustHealth("MZD_SOOT_GL") && !isExhaustHealth("RPM"), "exhaust/DPF ids")
+    }
+
     fun sweepStore() {
         val a = listOf(ProbeResult("7E0:220308", Support.SUPPORTED, "037A"), ProbeResult("7E0:22044B", Support.SUPPORTED, "003D"))
         val b = listOf(ProbeResult("7E0:22044B", Support.SUPPORTED, "0042"), ProbeResult("7E0:220594", Support.SUPPORTED, "46F3"))
@@ -495,6 +511,7 @@ object SelfTest {
         realCar(lib)
         fuelType()
         pollTiers(lib)
+        noStarvation(lib)
         sweepStore()
         units()
         gps()

@@ -80,8 +80,8 @@ Three tabs, Material 3:
 runs, and the first switch-on shows a warning: don't use the app while driving.
 
 **Android Auto:** a read-only dashboard (speed, RPM, temperatures, fuel and range, economy, trip, DPF regen) shows up in
-Android Auto while the logger runs. As CarMonitor is sideloaded, enable it once: Android Auto settings → tap *Version*
-ten times → ⋮ → *Developer settings* → **Unknown sources**.
+Android Auto while the logger runs. Android Auto only lists template apps installed by Google Play, so mark the install
+as Play once (Obtainium + Shizuku, or `pm install -i com.android.vending`); see the wiki's Android Auto page.
 
 **Appearance:** *Extended* (large tiles) or *Compact* (one dense list) layout, and System, Light or Dark theme.
 **Units:** km/h or mph, litres or UK gallons (economy then shows as mpg), °C or °F. Units only change what the phone shows:
