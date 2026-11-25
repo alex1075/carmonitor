@@ -47,7 +47,10 @@ async def test_webhook_end_to_end(hass, hass_client_no_auth, hass_ws_client):
                      [now - 3600000, 'VSS', 40.0]]}
     resp = await client.post(url, json=body)
     assert resp.status == 200
-    assert (await resp.json())['stored'] == 6
+    j = await resp.json()
+    assert j['stored'] == 6 and j['have']['end'] == now
+    j = await (await client.post(url, json={'drive': 'never-seen'})).json()
+    assert j['have'] is None
     await hass.async_block_till_done()
     assert hass.states.get('sensor.test_car_engine_rpm').state == '1500.0'
     assert hass.states.get('binary_sensor.test_car_logger').state == 'on'

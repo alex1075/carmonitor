@@ -38,6 +38,13 @@ def insertRows(con, drive, rows):
         con.commit()
     return n
 
+def driveSpan(con, drive):
+    with LOCK:
+        r = con.execute('SELECT first_ts, last_ts FROM drives WHERE drive = ?', (drive,)).fetchone()
+    if r is None:
+        return None
+    return {'start': r[0], 'end': r[1]}
+
 def saveSignals(con, defs):
     with LOCK:
         for sig, d in defs.items():
