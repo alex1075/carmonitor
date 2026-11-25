@@ -10,7 +10,7 @@ An optional custom integration, an alternative to MQTT and the HA API token. The
 - **Built-in store.** Every value is kept in a SQLite file under `config/carmonitor/` (included in HA backups). It feeds
   the drive map. Optionally every value is also copied to your own InfluxDB, with its real timestamp.
 
-> Status: preview. The drive map card comes next.
+> Status: preview.
 
 ## Install
 1. HACS → ⋮ → *Custom repositories* → `https://github.com/alex1075/carmonitor`, type *Integration*. Install
@@ -19,6 +19,23 @@ An optional custom integration, an alternative to MQTT and the HA API token. The
 3. Options (on the integration's card): offline timeout, and InfluxDB if you want a copy there.
 4. In the app: **Home Assistant → Edit connection → CarMonitor integration**, paste the webhook URL, **Test**, **Save**,
    then stop and start the logger.
+
+## Drive map card
+The integration ships a dashboard card; nothing else to install. After updating the integration, restart HA and reload
+the browser, then add it to a dashboard (*Add card* → *CarMonitor drive map*, or YAML):
+
+```yaml
+type: custom:carmonitor-map
+car: My car        # optional: the car's name or entry id; default is the car that drove most recently
+signal: VSS        # optional: the signal to colour by when a drive opens; default is speed, if the car reports it
+height: 360        # optional, pixels
+```
+
+- **Drive**: every stored drive, newest first. Drives without GPS are greyed out (turn on *Send location to HA*).
+- **Colour**: *None* for a plain line, or one signal at a time, coloured blue (lowest on the drive) to red (highest).
+  Grey means no reading of that signal within 10 s of the GPS fix. A GPS gap over a minute leaves a hole.
+- Tap the line for the time and value at that point. The footer shows the distance and duration.
+- Your drive data stays in HA. The browser loads map tiles from OpenStreetMap, as HA's own map does.
 
 ## What the app sends
 The drive CSV is the queue. Every 3 s the app sends each drive file's rows past what that file already had accepted

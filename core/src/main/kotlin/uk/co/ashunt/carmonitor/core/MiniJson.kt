@@ -77,19 +77,25 @@ object MiniJson {
 
     private class Parser(val s: String) {
         var i = 0
+        var depth = 0
         fun ws() { while (i < s.length && s[i].isWhitespace()) i++ }
         fun value(): Any? {
             ws()
             require(i < s.length) { "Unexpected end of JSON" }
             return when (val c = s[i]) {
-                '{' -> obj()
-                '[' -> arr()
+                '{' -> nested { obj() }
+                '[' -> nested { arr() }
                 '"' -> string()
                 't' -> lit("true", true)
                 'f' -> lit("false", false)
                 'n' -> lit("null", null)
                 else -> if (c == '-' || c.isDigit()) num() else error("Bad JSON char '$c' at $i")
             }
+        }
+        // deep [[[[... would overflow the stack, and a StackOverflowError is not caught as an Exception
+        fun nested(f: () -> Any?): Any? {
+            require(++depth <= 64) { "JSON nested too deep" }
+            return f().also { depth-- }
         }
         fun lit(word: String, v: Any?): Any? {
             require(s.startsWith(word, i)) { "Bad literal at $i" }

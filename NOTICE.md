@@ -1,4 +1,12 @@
-# Third-party data
+# Third-party code and data
+
+## Leaflet
+The drive map card bundles Leaflet 1.9.4 (https://leafletjs.com), unmodified, in
+`custom_components/carmonitor/www/leaflet/`: Copyright (c) 2010-2023, Volodymyr Agafonkin; Copyright (c) 2010-2011,
+CloudMade. BSD 2-Clause licence, full text in `custom_components/carmonitor/www/leaflet/LICENSE`. Map tiles are
+© OpenStreetMap contributors (https://www.openstreetmap.org/copyright), loaded by the browser at view time.
+
+## OBDb
 
 Vehicle signal definitions come from the OBDb project (https://github.com/OBDb), by its contributors,
 licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).

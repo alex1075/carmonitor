@@ -31,7 +31,8 @@ object RequestGuard {
     private val AT_ALLOWED = listOf(
         Regex("^Z$"), Regex("^WS$"), Regex("^D$"), Regex("^I$"), Regex("^RV$"), Regex("^DP$"), Regex("^DPN$"),
         Regex("^E[01]$"), Regex("^L[01]$"), Regex("^S[01]$"), Regex("^H[01]$"),
-        Regex("^CAF[01]$"), Regex("^AT[012]$"), Regex("^ST[0-9A-F]{2}$"),
+        Regex("^CAF1$"),   // CAF0 would turn "0104" into a raw Mode 04 (clear DTCs) frame
+        Regex("^AT[012]$"), Regex("^ST[0-9A-F]{2}$"),
         Regex("^SP[0-9A-C]$"), Regex("^TP[0-9A-C]$"),
         Regex("^SH[0-9A-F]{3}$"),          // 11-bit CAN header only
         Regex("^CRA[0-9A-F]{3}$"), Regex("^CRA$"),

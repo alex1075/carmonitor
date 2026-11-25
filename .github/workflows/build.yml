@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   apk:
@@ -46,11 +46,22 @@ jobs:
           name: carmonitor-apk
           path: app/build/outputs/apk/release/*.apk
 
-      - name: Release (tags only) - Obtainium tracks these
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v3
+  release:
+    # Only tag pushes get a write token; pull requests and branch builds stay read-only.
+    if: github.ref_type == 'tag'
+    needs: [apk, ha-integration]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
         with:
-          files: app/build/outputs/apk/release/*.apk
+          name: carmonitor-apk
+          path: apk
+      - name: Release - Obtainium tracks these
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          files: apk/*.apk
 
   ha-integration:
     runs-on: ubuntu-latest

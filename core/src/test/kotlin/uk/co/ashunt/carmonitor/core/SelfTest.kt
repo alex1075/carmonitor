@@ -134,8 +134,9 @@ object SelfTest {
             check(RequestGuard.isAllowed(ok), "should allow $ok")
         for (bad in listOf("04", "14FFFFFF", "2E042B01", "31010203", "1003", "1002", "1101", "2701", "2F030001",
                            "3E00", "8502", "34", "22042B00", "2204", "0C", "ATMA", "ATPP0CSV01", "ATBRD08",
-                           "ATSH18DA10F1", "010C\r04", "ZZ", "", "AT", "22042B\r2E"))
+                           "ATSH18DA10F1", "010C\r04", "ZZ", "", "AT", "22042B\r2E", "ATCAF0"))
             check(!RequestGuard.isAllowed(bad), "should refuse '$bad'")
+        check(runCatching { MiniJson.parse("[".repeat(100000)) }.exceptionOrNull() is IllegalArgumentException, "deep JSON refused, not a stack overflow")
         val elm = Elm327(FakeCx5())
         var threw = false
         try { elm.request("2E042B01") } catch (_: RequestGuard.Refused) { threw = true }
@@ -527,7 +528,7 @@ object SelfTest {
         val up = WebhookUplink("http://x/api/webhook/abc", dir, "car/test", uploadPast = false, now = { t },
             post = { _, b -> bodies += b; code }, ask = { _, _ -> if (code == 200) """{"ok":true,"have":null}""" else null }, worker = false)
         val cur = java.io.File(dir, "drive-20261125-082845.csv")
-        cur.writeText("ts_ms,key,signal,value,raw\n$t,7E0:010C,RPM,1500,0BB8\n${t + 1},7E0:22044B,raw,122,007A\n${t + 2},gps,GPS_LAT,55.9043682,\n${t + 3},7E0:010D,VS")
+        cur.writeText("ts_ms,key,signal,value,raw\n$t,7E0:010C,RPM,1500,0BB8\n${t + 1},7E0:22044B,raw,122,007A\n${t + 2},gps,GPS_LAT,55.95,\n${t + 3},7E0:010D,VS")
         up.publish("homeassistant/sensor/test_rpm/config", """{"name":"Engine RPM","state_topic":"car/test/sig/RPM","unit_of_measurement":"rpm","state_class":"measurement","expire_after":60}""", true)
         up.publish("car/test/logger/status", "online", true)
         up.publish("car/test/sig/RPM", "1500", false)

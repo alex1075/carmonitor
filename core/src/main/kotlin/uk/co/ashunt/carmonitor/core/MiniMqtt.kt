@@ -67,7 +67,7 @@ class MiniMqtt(
                     val t = i.read(); if (t < 0) break
                     val n = readLen(i); readFully(i, ByteArray(n))   // PINGRESP etc.
                 }
-            } catch (_: IOException) {}
+            } catch (_: Exception) {}
             connected = false
         }, "mqtt-reader").apply { isDaemon = true; start() }
         pinger = Thread({
@@ -120,12 +120,13 @@ class MiniMqtt(
     }
     private fun readLen(i: InputStream): Int {
         var mult = 1; var v = 0
-        while (true) {
+        repeat(4) {
             val d = i.read(); if (d < 0) throw IOException("eof")
             v += (d and 127) * mult
-            if (d and 128 == 0) return v
+            if (d and 128 == 0) { if (v > 1 shl 20) throw IOException("packet too large: $v"); return v }
             mult *= 128
         }
+        throw IOException("bad packet length")
     }
     private fun readFully(i: InputStream, b: ByteArray) {
         var o = 0
