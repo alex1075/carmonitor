@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.1] - 2026-11-25
 ### Added
 - **Upload drives** button (CarMonitor integration mode): sends every drive the integration hasn't fully accepted,
   now, with a count of what's left.
