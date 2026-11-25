@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+### Added
+- **Home Assistant integration (preview)**, `custom_components/carmonitor`, installable from HACS. Webhook in (no
+  admin token on the phone), values stored with their real timestamps so late rows land at the right time, offline
+  status built in, a built-in store for the coming drive map, and an optional copy to your own InfluxDB. The app side
+  comes next. See the wiki.
+
 ## [0.7.2] - 2026-11-24
 ### Changed
 - **Much faster live values.** Speed, RPM, coolant and fuel rate now update every 0.5 s on the phone and in Android Auto

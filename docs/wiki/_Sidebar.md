@@ -3,6 +3,7 @@
 - [[Choosing a dongle|Choosing-a-Dongle]]
 - [[Getting started|Getting-Started]]
 - [[Home Assistant|Home-Assistant]]
+- [[HA integration (preview)|Home-Assistant-Integration]]
 - [[Android Auto|Android-Auto]]
 - [[Discovery and sweep|Discovery-and-Sweep]]
 - [[Overlays|Overlays-and-Validating-PIDs]]
