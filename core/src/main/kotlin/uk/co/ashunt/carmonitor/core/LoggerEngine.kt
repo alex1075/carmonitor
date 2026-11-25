@@ -41,6 +41,13 @@ data class LoggerConfig(
     val fastMs: Long = 500,
     val mediumMs: Long = 15_000,
     val slowMs: Long = 60_000,
+    /** User poll plan (PollPlan.tiers): command key -> tier, applied after the engine's own rules. */
+    val pollPlan: Map<String, Int> = emptyMap(),
+    /** Slots mode: every round of 6 requests has this many fast and medium slots, the rest slow.
+     *  Replaces the due-time scheduler (intervals, fastEveryMs stretching and FAIR_EVERY). */
+    val slots: Boolean = false,
+    val fastSlots: Int = 3,
+    val mediumSlots: Int = 2,
 )
 
 /** Rows for the per-drive CSV: ts_ms, key, signal, value, raw. */
@@ -87,14 +94,15 @@ class LoggerEngine(
 
     /** 2 = fast, 1 = medium, 0 = slow. A slow ELM327 manages ~5 requests/s, so not everything can be fast. */
     private val tier: Map<String, Int> = polled.associate { c ->
-        c.key to when {
+        c.key to (cfg.pollPlan[c.key] ?: when {
             c.source == "sweep" -> 0
             c.signals.any { it.id in FAST_IDS } -> 2
             c.signals.any { it.id in FUEL_INPUTS || it.id in POST_DPF_EGT || it.id == "PF_REGEN_STAT" ||
                 it.id == "MZD_SOOT_GL" || isExhaustHealth(it.id) || DefaultSignals.include(it) } -> 1
             else -> 0
-        }
+        })
     }
+    internal fun tierOf(key: String) = tier[key]
     /** What one request polls: one command, or several fast service 01 PIDs asked for together. */
     private inner class PollUnit(val members: List<Command>) {
         val first = members.first()
@@ -124,6 +132,54 @@ class LoggerEngine(
         return maxOf(cfg.fastMs, (fastUnits * avgRequestMs * 2).toLong())
     }
     private var avgRequestMs = 0.0
+
+    // --- slots mode -----------------------------------------------------------------------------------
+    private val fastSlots = cfg.fastSlots.coerceIn(1, SLOTS - 2)
+    private val mediumSlots = cfg.mediumSlots.coerceIn(1, SLOTS - 1 - fastSlots)
+    /** One round, spread out: 3/2/1 gives fast, medium, slow, fast, medium, fast. */
+    private val slotPattern: List<Int> = ArrayList<Int>().also { out ->
+        val left = intArrayOf(SLOTS - fastSlots - mediumSlots, mediumSlots, fastSlots)
+        while (out.size < SLOTS) for (k in intArrayOf(2, 1, 0)) if (left[k] > 0) { out += k; left[k]-- }
+    }
+    /** A tier with nothing in it lends its slot to the nearest one that has something. */
+    private fun slotTier(k: Int) = listOf(k, 1, 2, 0).firstOrNull { x -> units.any { it.tier == x } } ?: k
+    private var slot = 0
+    private var rounds = 0L
+    private val passDone = HashSet<String>()
+    /** Each tier's units take turns: none repeats until all have had a slot. Within a turn, the ECU the
+     *  adapter is already addressed to goes first (no ATSH/ATCRA). */
+    private fun nextSlot(): PollUnit {
+        val k = slotTier(slotPattern[slot])
+        slot = (slot + 1) % SLOTS
+        if (slot == 0) rounds++
+        val list = units.filter { it.tier == k }
+        var pending = list.filter { it.key !in passDone }
+        if (pending.isEmpty()) { list.forEach { passDone.remove(it.key) }; pending = list }
+        val u = pending.firstOrNull { it.hdr == elm.currentHeader } ?: pending.first()
+        passDone += u.key
+        return u
+    }
+    /** Last unit polled (key, tier), for tests. */
+    internal var lastPick: Pair<String, Int>? = null
+
+    /** Commands, requests and (slots mode) slots and effective interval per tier, for the log. */
+    private fun tierSummary(roundMs: Double?): String = (2 downTo 0).joinToString("; ") { k ->
+        val n = units.count { it.tier == k }
+        val s = PollPlan.NAMES[k] + " " + tier.values.count { it == k } + " commands in " + n + " requests"
+        if (!cfg.slots) return@joinToString s
+        val slots = slotPattern.count { slotTier(it) == k }
+        s + ", " + slots + " slots" + (if (roundMs == null || slots == 0 || n == 0) "" else
+            ", every %.1f s".format(Locale.ROOT, n.toDouble() / slots * roundMs / 1000))
+    }
+
+    init {
+        val unknown = cfg.pollPlan.keys.filter { it !in tier }
+        if (unknown.isNotEmpty()) log("poll plan: ignoring " + unknown.size + " keys not polled this session: " + unknown.joinToString())
+        val used = cfg.pollPlan.filterKeys { it in tier }
+        if (used.isNotEmpty()) log("poll plan: " + used.size + " overrides: " + used.entries.joinToString { it.key + " " + PollPlan.NAMES[it.value] })
+        log((if (cfg.slots) "poll mode slots $fastSlots/$mediumSlots/" + (SLOTS - fastSlots - mediumSlots) + ": " else "poll mode auto: ") +
+            tierSummary(null) + (if (cfg.slots) " (intervals logged after a minute)" else ""))
+    }
 
     private fun intervalMs(u: PollUnit): Long {
         val base = when (u.tier) { 2 -> return fastEveryMs; 1 -> maxOf(cfg.mediumMs, (u.freq * 1000).toLong()); else -> maxOf(cfg.slowMs, (u.freq * 1000).toLong()) }
@@ -215,21 +271,9 @@ class LoggerEngine(
         // Every FAIR_EVERY-th pick ignores tiers and takes the most overdue command, so a saturated
         // adapter slows diagnostics down but never starves them (HA would mark them unavailable).
         // Within a tier, requests to the ECU the adapter is already addressed to go first (no ATSH/ATCRA).
-        val fair = ++picks % FAIR_EVERY == 0L
-        val cur = elm.currentHeader
-        var c: PollUnit? = null
-        for (x in units) {
-            val d = nextDue[x.key] ?: 0L
-            if (d > t) continue
-            val best = c
-            if (best == null) { c = x; continue }
-            val db = nextDue[best.key] ?: 0L
-            if (fair) { if (d < db) c = x; continue }
-            val sx = x.hdr == cur; val sb = best.hdr == cur
-            if (x.tier > best.tier || (x.tier == best.tier && (sx && !sb || (sx == sb && d < db)))) c = x
-        }
-        if (c == null) { sleep(minOf(units.minOf { nextDue[it.key] ?: 0L } - t, 200).coerceAtLeast(1)); return }
-        nextDue[c.key] = t + intervalMs(c)
+        // Slots mode instead fills fixed slots per round from each tier in turn (see nextSlot).
+        val c = if (cfg.slots) nextSlot() else pickDue(t) ?: return
+        lastPick = c.key to c.tier
 
         val n0 = elm.requestNanos; val q0 = elm.requests
         val r = elm.request(c.request, c.hdr, c.rax)
@@ -253,6 +297,26 @@ class LoggerEngine(
         sleep(cfg.minGapMs)
     }
 
+    /** Auto mode: the most deserving due unit, or null after sleeping until one is due. */
+    private fun pickDue(t: Long): PollUnit? {
+        val fair = ++picks % FAIR_EVERY == 0L
+        val cur = elm.currentHeader
+        var c: PollUnit? = null
+        for (x in units) {
+            val d = nextDue[x.key] ?: 0L
+            if (d > t) continue
+            val best = c
+            if (best == null) { c = x; continue }
+            val db = nextDue[best.key] ?: 0L
+            if (fair) { if (d < db) c = x; continue }
+            val sx = x.hdr == cur; val sb = best.hdr == cur
+            if (x.tier > best.tier || (x.tier == best.tier && (sx && !sb || (sx == sb && d < db)))) c = x
+        }
+        if (c == null) { sleep(minOf(units.minOf { nextDue[it.key] ?: 0L } - t, 200).coerceAtLeast(1)); return null }
+        nextDue[c.key] = t + intervalMs(c)
+        return c
+    }
+
     /** A batch the ECU keeps answering badly is split back into single requests for this session. */
     private fun batchMiss(u: PollUnit, why: String) {
         val n = (batchMisses[u.key] ?: 0) + 1
@@ -263,14 +327,22 @@ class LoggerEngine(
         log("multi-PID ${u.request} on ${u.hdr} unreliable ($why): polling its PIDs one by one")
     }
 
-    private var rateAt = 0L; private var rateReq = 0L
+    private var rateAt = 0L; private var rateReq = 0L; private var rateRounds = 0L
     private fun maybeLogRate(t: Long) {
-        if (rateAt == 0L) { rateAt = t; rateReq = elm.requests; return }
+        if (rateAt == 0L) { rateAt = t; rateReq = elm.requests; rateRounds = rounds; return }
         if (t - rateAt < 60_000) return
         val perS = (elm.requests - rateReq) * 1000.0 / (t - rateAt)
-        log("poll rate %.1f req/s, %.0f ms each, fast every %d ms, response counts %s".format(java.util.Locale.ROOT,
-            perS, avgRequestMs, fastEveryMs, if (elm.responseCounts) "on" else "off"))
-        rateAt = t; rateReq = elm.requests
+        if (cfg.slots) {
+            val roundMs = if (rounds > rateRounds) (t - rateAt).toDouble() / (rounds - rateRounds) else null
+            log("poll rate %.1f req/s, %.0f ms each, round %s, response counts %s".format(java.util.Locale.ROOT,
+                perS, avgRequestMs, roundMs?.let { "%.0f ms".format(Locale.ROOT, it) } ?: "not finished", if (elm.responseCounts) "on" else "off"))
+            log("tiers: " + tierSummary(roundMs))
+        } else {
+            log("poll rate %.1f req/s, %.0f ms each, fast every %d ms, response counts %s".format(java.util.Locale.ROOT,
+                perS, avgRequestMs, fastEveryMs, if (elm.responseCounts) "on" else "off"))
+            log("tiers: " + tierSummary(null))
+        }
+        rateAt = t; rateReq = elm.requests; rateRounds = rounds
     }
 
     private fun handle(c: Command, data: ByteArray, t: Long) {
@@ -430,6 +502,8 @@ private val FAST_IDS = setOf("RPM", "VSS", "ECT", "MAF", "MAFA", "MZD_INJ_QTY", 
 private val FUEL_INPUTS = setOf("MZD_INJ_QTY", "INJ_QTY", "FUEL_RATE", "FUEL_RATE_ALT", "VFUEL_RATE", "CX5_ENG_FUEL_RATE", "MAF", "MAFA", "FLI", "CX5_FLI", "CX5_FLV")
 
 private const val FAIR_EVERY = 4
+/** Requests per round in slots mode. */
+private const val SLOTS = 6
 /** Exhaust temperatures and particulate-filter readings: worth watching live on a diesel. */
 internal fun isExhaustHealth(id: String): Boolean =
     id.startsWith("EGT") || id.startsWith("DPF") || id.contains("_EGT") || id.contains("_DPF") || id.contains("SOOT")

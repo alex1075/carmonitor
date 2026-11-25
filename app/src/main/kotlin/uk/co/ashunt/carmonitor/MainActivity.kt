@@ -153,6 +153,10 @@ class MainActivity : ComponentActivity(), Actions {
         model.layout = prefs.layout; model.theme = prefs.theme; model.units = prefs.units()
         model.startOnBoot = prefs.autoStart; model.candidates = prefs.publishCandidates; model.logSweep = prefs.logSweepHits
         model.modelYear = prefs.modelYear.toString(); model.sweepRanges = prefs.sweep
+        model.pollMode = prefs.pollMode; model.fastSlots = prefs.fastSlots; model.mediumSlots = prefs.mediumSlots
+        val plan = p?.vin?.let { prefs.pollPlan(it) }
+        model.planNote = if (p?.vin == null) "No VIN yet: discover first" else if (plan == null) "No poll plan for " + p?.vin
+            else plan.tiers.size.toString() + " overrides for " + p?.vin
         model.gpsRecord = prefs.gpsRecord; model.gpsToHa = prefs.gpsToHa
         model.gpsNote = when {
             !prefs.gpsWanted -> ""
@@ -213,6 +217,17 @@ class MainActivity : ComponentActivity(), Actions {
     override fun setLogSweep(on: Boolean) { prefs.logSweepHits = on }
     override fun setModelYear(v: String) { v.toIntOrNull()?.takeIf { it in 1990..2100 }?.let { prefs.modelYear = it } }
     override fun setSweepRanges(v: String) { prefs.sweep = v }
+    override fun setPollMode(v: String) { prefs.pollMode = v; refresh() }
+    override fun setSlots(fast: Int, medium: Int) {
+        if (6 - fast - medium < 1) { toast("Needs at least one slow slot: $fast fast + $medium medium is too many"); refresh(); return }
+        prefs.fastSlots = fast; prefs.mediumSlots = medium; refresh()
+    }
+    override fun importPollPlan() = pickFile("*/*", 14)
+    override fun exportPollPlan() {
+        val vin = prefs.profile()?.vin
+        if (vin == null) toast("No VIN yet: discover first")
+        else export(uk.co.ashunt.carmonitor.core.PollPlan.file(prefs.pollPlanDir, vin), "carmonitor-pollplan-$vin.json", "application/json")
+    }
     // --- GPS: warning once, then while-in-use location permission ------------------------
     private var pendingGps: (() -> Unit)? = null
     override fun setGpsRecord(on: Boolean) = gpsSwitch(on) { prefs.gpsRecord = on }
@@ -456,6 +471,19 @@ class MainActivity : ComponentActivity(), Actions {
                     startService(Intent(this, ObdService::class.java).setAction(ObdService.ACTION_RELOAD))
                     toast((if (active) "Profile imported (no discovery needed). " else "Old-format profile: sweep hits kept. ") +
                         "$vin now has ${merged.size} sweep hits.")
+                }
+                14 -> {
+                    val text = contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: return
+                    val plan = uk.co.ashunt.carmonitor.core.PollPlan.fromJson(text)   // validate before saving
+                    uk.co.ashunt.carmonitor.core.PollPlan.save(prefs.pollPlanDir, plan)
+                    val p = prefs.profile()
+                    val known = p?.let { it.results.keys + it.sweepHits.map { h -> h.key } } ?: emptySet()
+                    val unknown = if (p?.vin == plan.vin) plan.tiers.keys.count { it !in known } else 0
+                    refresh()
+                    startService(Intent(this, ObdService::class.java).setAction(ObdService.ACTION_RELOAD))
+                    toast("Poll plan saved for " + plan.vin + ": " + plan.tiers.size + " overrides" +
+                        (if (p?.vin != plan.vin) " (not the current car: used when that VIN connects)" else "") +
+                        (if (unknown > 0) ", $unknown not in this car's profile (ignored)" else ""))
                 }
                 11 -> {
                     val text = contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: return

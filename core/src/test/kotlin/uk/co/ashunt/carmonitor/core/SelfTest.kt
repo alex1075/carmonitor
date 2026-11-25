@@ -563,6 +563,73 @@ object SelfTest {
         dir.deleteRecursively()
     }
 
+fun pollPlan(lib: SignalSet) {
+        val text = """{"format":"carmonitor-pollplan-1","vin":"JMZXXXXXX00123456","tiers":{
+            "7E0:22042B":"fast","7e0:2203cb":"fast","7E0:2203F4":"fast","7E0:220435":"medium","7E0:220C42":"medium","7E0:22FFFF":"slow"}}"""
+        val plan = PollPlan.fromJson(text)
+        eq(plan.vin, "JMZXXXXXX00123456", "plan VIN")
+        eq(plan.tiers["7E0:2203CB"], 2, "plan keys upper-cased")
+        eq(plan.tiers["7E0:220435"], 1, "plan medium")
+        eq(PollPlan.fromJson(plan.toJson()), plan, "plan round-trip")
+        for (bad in listOf("[]", """{"format":"carmonitor-profile-3","vin":"X","tiers":{}}""",
+            """{"format":"carmonitor-pollplan-1","tiers":{}}""", """{"format":"carmonitor-pollplan-1","vin":"X"}""",
+            """{"format":"carmonitor-pollplan-1","vin":"X","tiers":{"7E0:22042B":"turbo"}}""",
+            """{"format":"carmonitor-pollplan-1","vin":"X","tiers":{"RPM":"fast"}}""")) {
+            check(try { PollPlan.fromJson(bad); false } catch (_: IllegalArgumentException) { true }, "plan rejected: $bad")
+        }
+
+        val fake = FakeCx5(); val elm = Elm327(fake).also { it.init() }
+        val prof = Discoverer(elm, lib, DiscoverOptions(yearOverride = 2017, sweep = listOf(SweepRange("7E0", 0x0C40, 0x0C44)), delayMs = 0), sleep = {}).run()
+        var now = 5_000_000L
+        val logs = mutableListOf<String>()
+        val sweepRaw = mutableListOf<String>()
+        fun engine(cfg: LoggerConfig, p: VehicleProfile = prof, e: Elm327 = elm) = LoggerEngine(e, lib, p, { _, _, _ -> }, TopicScheme.forVehicle(null), cfg,
+            csv = { _, k, _, _, raw -> if (k == "7E0:220C42") sweepRaw += raw }, now = { now }, sleep = { now += it }, log = { logs += it })
+        eq(engine(LoggerConfig(minGapMs = 0)).tierOf("7E0:220C42"), 0, "sweep hit slow without a plan")
+        logs.clear()
+        val eng = engine(LoggerConfig(minGapMs = 0, pollPlan = plan.tiers, slots = true))
+        eq(eng.tierOf("7E0:220C42"), 1, "plan overrides the sweep hit's forced slow tier")
+        eq(eng.tierOf("7E0:22042B"), 2, "plan makes a Mode 22 DID fast")
+        eq(eng.tierOf("7E0:22FFFF"), null, "unknown plan key not polled")
+        eq(logs.count { it.contains("ignoring 1 keys") && it.contains("7E0:22FFFF") }, 1, "unknown key logged once")
+        check(logs.any { it.contains("overrides") && it.contains("7E0:22042B fast") && it.contains("7E0:220C42 medium") }, "overrides logged with tiers: $logs")
+        check(logs.any { it.startsWith("poll mode slots 3/2/1") }, "slots mode logged at start: $logs")
+
+        // Slots 3/2/1: over 60 picks (10 rounds), 30 fast, 20 medium, 10 slow, each tier's items in turn.
+        fake.rpm = 1500.0
+        val byTier = IntArray(3); val byKey = HashMap<Int, HashMap<String, Int>>()
+        repeat(60) { eng.step(); now += 50; eng.lastPick?.let { (k, t) -> byTier[t]++; byKey.getOrPut(t) { HashMap() }.merge(k, 1, Int::plus) } }
+        eq(byTier.toList(), listOf(10, 20, 30), "slow/medium/fast picks over 60")
+        for ((t, m) in byKey) check(m.values.max() - m.values.min() <= 1, "tier $t items rotate evenly: $m")
+        check(byKey[2]!!.keys.any { it.startsWith("7E0:01") && it.length > 8 }, "a multi-PID batch takes one fast slot: ${byKey[2]!!.keys}")
+        check(sweepRaw.isNotEmpty() && sweepRaw.all { it == "BEEF" }, "CSV keeps raw bytes of the polled sweep DID: $sweepRaw")
+        now += 61_000; eng.step()
+        check(logs.any { it.startsWith("tiers: fast") && it.contains("slots, every") }, "per-tier effective interval logged each minute: ${logs.takeLast(2)}")
+
+        // Auto mode is untouched by the slot settings and by plan keys this car doesn't poll.
+        fun autoRun(cfg: LoggerConfig): List<String> {
+            val f = FakeCx5().also { it.rpm = 1500.0 }; val e = Elm327(f).also { it.init() }
+            now = 9_000_000L
+            val x = engine(cfg, e = e)
+            f.sent.clear()
+            repeat(300) { x.step(); now += 200 }
+            return f.sent.toList()
+        }
+        eq(autoRun(LoggerConfig(minGapMs = 0, fastSlots = 1, mediumSlots = 3, pollPlan = mapOf("7E0:22FFFF" to 2))),
+            autoRun(LoggerConfig(minGapMs = 0)), "auto mode: same requests in the same order")
+
+        // The plan lives in its own per-VIN file: re-importing (or re-discovering) a profile leaves it alone.
+        val dir = File(System.getProperty("java.io.tmpdir"), "cm-pollplan-" + System.nanoTime())
+        PollPlan.save(dir, plan)
+        val reimported = VehicleProfile.fromJson(prof.toJson())
+        check(!prof.toJson().contains("pollplan"), "profile JSON carries no poll plan")
+        eq(PollPlan.load(dir, reimported.vin!!), plan, "plan survives profile re-import")
+        eq(engine(LoggerConfig(pollPlan = PollPlan.load(dir, reimported.vin!!)!!.tiers), reimported).tierOf("7E0:220C42"), 1,
+            "re-imported profile still gets the plan's tiers")
+        eq(PollPlan.load(dir, "OTHERVIN"), null, "no plan for another car")
+        dir.deleteRecursively()
+    }
+
     fun sweepStore() {
         val a = listOf(ProbeResult("7E0:220308", Support.SUPPORTED, "037A"), ProbeResult("7E0:22044B", Support.SUPPORTED, "003D"))
         val b = listOf(ProbeResult("7E0:22044B", Support.SUPPORTED, "0042"), ProbeResult("7E0:220594", Support.SUPPORTED, "46F3"))
@@ -637,6 +704,7 @@ object SelfTest {
         noStarvation(lib)
         fastPolling(lib)
         sweepStore()
+        pollPlan(lib)
         units()
         gps()
         webhook()

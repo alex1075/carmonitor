@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.0] - 2026-11-25
+### Added
+- **Poll plan.** Choose which commands are polled fast, medium or slow with a JSON file per car
+  (`carmonitor-pollplan-1`, keyed by VIN). Import and export it in Settings → Polling. Discovery and profile import
+  never touch it. Keys the car doesn't answer are ignored and logged once. See
+  [Discovery and sweep](docs/wiki/Discovery-and-Sweep.md#poll-plan-choosing-fast-medium-and-slow).
+- **Slots poll mode.** Rounds of 6 requests with a chosen number of fast (1–3) and medium (2–3) slots, the rest slow.
+  Each tier's commands take turns. A multi-PID batch counts as one slot. **Auto** (the default) is unchanged.
+- The log shows commands and requests per tier at start and every minute; in Slots mode, the effective interval per tier.
+
 ## [0.8.4] - 2026-11-25
 ### Fixed
 - **Drive map showed "Access blocked" tiles.** OpenStreetMap's tile servers refuse requests without a referrer, which

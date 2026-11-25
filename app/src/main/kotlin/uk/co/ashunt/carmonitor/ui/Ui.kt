@@ -98,6 +98,10 @@ class UiModel {
     var logSweep by mutableStateOf(true)
     var modelYear by mutableStateOf("")
     var sweepRanges by mutableStateOf("")
+    var pollMode by mutableStateOf("auto")
+    var fastSlots by mutableIntStateOf(3)
+    var mediumSlots by mutableIntStateOf(2)
+    var planNote by mutableStateOf("")
     var gpsRecord by mutableStateOf(false)
     var gpsToHa by mutableStateOf(false)
     var gpsNote by mutableStateOf("")
@@ -119,6 +123,7 @@ interface Actions {
     fun setUnits(u: Units)
     fun setStartOnBoot(on: Boolean); fun setCandidates(on: Boolean); fun setLogSweep(on: Boolean)
     fun setModelYear(v: String); fun setSweepRanges(v: String)
+    fun setPollMode(v: String); fun setSlots(fast: Int, medium: Int); fun importPollPlan(); fun exportPollPlan()
     fun exportDrive(); fun exportLog(); fun importOverlay()
     fun setGpsRecord(on: Boolean); fun setGpsToHa(on: Boolean); fun exportTrack()
 }
@@ -478,6 +483,21 @@ fun SettingsScreen(m: UiModel, a: Actions) {
             SwitchRow("Unvalidated candidates", "Raw diesel DIDs as diagnostic sensors", m.candidates) { m.candidates = it; a.setCandidates(it) }
             HorizontalDivider()
             SwitchRow("Log sweep hits", "Poll unidentified DIDs for PID hunting", m.logSweep) { m.logSweep = it; a.setLogSweep(it) }
+        }
+        Section("Polling") {
+            Choice("Poll mode", listOf("auto" to "Auto (current behaviour)", "slots" to "Slots"), m.pollMode) { a.setPollMode(it) }
+            if (m.pollMode == "slots") {
+                Choice("Fast slots per round", listOf("1" to "1", "2" to "2", "3" to "3"), m.fastSlots.toString()) { a.setSlots(it.toInt(), m.mediumSlots) }
+                Choice("Medium slots", listOf("2" to "2", "3" to "3"), m.mediumSlots.toString()) { a.setSlots(m.fastSlots, it.toInt()) }
+                Muted("Slow slots: " + (6 - m.fastSlots - m.mediumSlots) + " of 6. A multi-PID batch counts as one slot.")
+            }
+            HorizontalDivider()
+            Text("Poll plan", style = MaterialTheme.typography.bodyLarge)
+            Muted(m.planNote)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = a::importPollPlan, Modifier.weight(1f)) { Text("Import plan") }
+                OutlinedButton(onClick = a::exportPollPlan, Modifier.weight(1f)) { Text("Export plan") }
+            }
         }
         Section("Advanced") {
             OutlinedTextField(m.modelYear, { m.modelYear = it; a.setModelYear(it) }, Modifier.fillMaxWidth(),

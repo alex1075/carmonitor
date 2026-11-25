@@ -72,6 +72,10 @@ class Prefs(private val ctx: Context) {
     var autoStart: Boolean get() = sp.getBoolean("boot", true); set(v) = sp.edit().putBoolean("boot", v).apply()
     var logSweepHits: Boolean get() = sp.getBoolean("logsweep", true); set(v) = sp.edit().putBoolean("logsweep", v).apply()
     var sweep: String get() = str("sweep", "7E0:0300-04FF, 7E0:0500-05FF"); set(v) = put("sweep", v)
+    /** "auto" (due-time tiers) or "slots" (fixed fast/medium/slow slots per 6-request round). */
+    var pollMode: String get() = str("pollmode", "auto"); set(v) = put("pollmode", v)
+    var fastSlots: Int get() = sp.getInt("slots_fast", 3); set(v) = sp.edit().putInt("slots_fast", v).apply()
+    var mediumSlots: Int get() = sp.getInt("slots_med", 2); set(v) = sp.edit().putInt("slots_med", v).apply()
 
     // --- vehicle (OBDb repo) and HA naming -------------------------------------------
     /** OBDb repo, e.g. "Mazda-CX-5"; "" = generic SAE J1979 only. */
@@ -153,11 +157,14 @@ class Prefs(private val ctx: Context) {
         get() = try { uk.co.ashunt.carmonitor.core.MiniJson.obj(str("fuelstate", "{}")) } catch (_: Exception) { emptyMap() }
         set(v) = put("fuelstate", uk.co.ashunt.carmonitor.core.MiniJson.write(v))
 
-    fun loggerConfig() = LoggerConfig(
+    /** [vin]: the connected car, whose poll plan (if any) applies. */
+    fun loggerConfig(vin: String? = null) = LoggerConfig(
         publishAll = publishAll, publishCandidates = publishCandidates,
         tankLitres = tankLitres.takeIf { it > 0 },
         fuelState = fuelState,
         logSweepHits = logSweepHits,
+        pollPlan = vin?.let { pollPlan(it) }?.tiers ?: emptyMap(),
+        slots = pollMode == "slots", fastSlots = fastSlots, mediumSlots = mediumSlots,
     )
 
     /** "7E0:0300-04FF, 7E0:F400-F4FF" -> ranges. Invalid entries are ignored. */
@@ -183,6 +190,9 @@ class Prefs(private val ctx: Context) {
         sweepFile(vin).writeText(uk.co.ashunt.carmonitor.core.SweepHits.toJson(vin, merged))
         return merged
     }
+    /** Per-car poll plans (PollPlan): written only by Import poll plan, never by discovery or profile import. */
+    val pollPlanDir get() = File(ctx.filesDir, "pollplan")
+    fun pollPlan(vin: String) = uk.co.ashunt.carmonitor.core.PollPlan.load(pollPlanDir, vin)
     val overlayFile get() = File(ctx.filesDir, "overlay.json")      // user-imported overlay
     val logDir get() = File(ctx.filesDir, "drives").apply { mkdirs() }
 

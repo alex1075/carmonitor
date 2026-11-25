@@ -252,10 +252,9 @@ class ObdService : Service() {
                     if (gps?.running == true) Status.log("GPS on (${listOfNotNull(if (prefs.gpsRecord) "recording" else null, if (prefs.gpsToHa) "to HA" else null).joinToString(", ")})")
                     try { csvFile.bufferedWriter().use { w ->
                         w.write("ts_ms,key,signal,value,raw\n")
-                        val engine = LoggerEngine(elm, lib, profile, mqtt, scheme, prefs.loggerConfig(),
+                        val engine = LoggerEngine(elm, lib, profile, mqtt, scheme, prefs.loggerConfig(profile.vin),
                             csv = csvRow(w), log = { Status.log(it) })
                         setState("logging", "${engine.pollCount} commands")
-                        engine.tierCounts.let { (f, m, s) -> Status.log("poll tiers: $f fast (0.5 s), $m medium (15 s), $s slow (60 s)") }
                         engine.unitCounts.let { (u, b) -> Status.log("$u requests per round, $b of them multi-PID") }
                         updateNote("Logging ${engine.pollCount} signals")
                         var lastUi = 0L
