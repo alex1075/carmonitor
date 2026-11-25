@@ -525,7 +525,7 @@ object SelfTest {
         val old = java.io.File(dir, "drive-20261124-160628.csv").apply { writeText("ts_ms,key,signal,value,raw\n$t,7E0:010C,RPM,800,\n") }
         old.setLastModified(1000)
         val up = WebhookUplink("http://x/api/webhook/abc", dir, "car/test", uploadPast = false, now = { t },
-            post = { _, b -> bodies += b; code }, worker = false)
+            post = { _, b -> bodies += b; code }, ask = { _, _ -> if (code == 200) """{"ok":true,"have":null}""" else null }, worker = false)
         val cur = java.io.File(dir, "drive-20261125-082845.csv")
         cur.writeText("ts_ms,key,signal,value,raw\n$t,7E0:010C,RPM,1500,0BB8\n${t + 1},7E0:22044B,raw,122,007A\n${t + 2},gps,GPS_LAT,55.9043682,\n${t + 3},7E0:010D,VS")
         up.publish("homeassistant/sensor/test_rpm/config", """{"name":"Engine RPM","state_topic":"car/test/sig/RPM","unit_of_measurement":"rpm","state_class":"measurement","expire_after":60}""", true)
@@ -548,9 +548,17 @@ object SelfTest {
         bodies.clear()
         eq(up.flush(), 1, "the rest of the half-written line once it is complete")
         check(bodies.size == 1 && !bodies[0].contains("defs"), "accepted names aren't re-sent")
-        val past = WebhookUplink("http://x", dir, "car/test", uploadPast = true, post = { _, bb -> bodies += bb; 200 }, worker = false)
+        val past = WebhookUplink("http://x", dir, "car/test", uploadPast = true, post = { _, bb -> bodies += bb; 200 }, ask = { _, _ -> """{"have":null}""" }, worker = false)
         eq(past.pending().map { it.name }, listOf("drive-20261124-160628.csv"), "past drives: only the ones not yet sent")
         eq(past.flush(), 1, "past drive uploaded")
+        // A drive HA already has (same date-time id, its newest row stored): marked sent, not re-sent.
+        java.io.File(dir, ".sent").delete()
+        bodies.clear()
+        val again = WebhookUplink("http://x", dir, "car/test", uploadPast = true, post = { _, bb -> bodies += bb; 200 },
+            ask = { _, bb -> if (bb.contains("20261124-160628")) """{"have":{"start":$t,"end":$t}}""" else """{"have":{"start":$t,"end":${t + 1}}}""" }, worker = false)
+        again.flush()
+        check(bodies.none { it.contains("20261124-160628") }, "a drive HA already has isn't sent again")
+        check(bodies.any { it.contains("20261125-082845") && it.contains("GPS_LAT") }, "a drive HA only partly has is sent (HA drops the duplicate rows)")
         dir.deleteRecursively()
     }
 

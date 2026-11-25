@@ -97,7 +97,9 @@ async def handleWebhook(hass, webhook_id, request):
         body = influx.lineProtocol(entry.title, p['drive'], p['rows'])
         hass.async_create_background_task(influx.writeInflux(async_get_clientsession(hass), o[CONF_INFLUX_URL],
             o.get(CONF_INFLUX_ORG, ''), o.get(CONF_INFLUX_BUCKET, ''), o.get(CONF_INFLUX_TOKEN, ''), body), DOMAIN + '_influx')
-    return web.json_response({'ok': True, 'rows': len(p['rows']), 'stored': stored})
+    # What is already stored for this drive (by its date-time id), so the app can skip drives it has.
+    have = await hass.async_add_executor_job(store.driveSpan, rt['con'], p['drive'])
+    return web.json_response({'ok': True, 'rows': len(p['rows']), 'stored': stored, 'have': have})
 
 def pick_entry(hass, entry_id):
     for e in hass.config_entries.async_entries(DOMAIN):

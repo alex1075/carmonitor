@@ -22,6 +22,8 @@ class WebhookUplink(
     private val log: (String) -> Unit = {},
     private val post: (url: String, body: String) -> Int = ::httpPost,
     private val now: () -> Long = { System.currentTimeMillis() },
+    /** POST returning the reply body on 2xx, else null: asks what the integration already has. */
+    private val ask: (url: String, body: String) -> String? = ::httpAsk,
     worker: Boolean = true,
 ) : Uplink {
     @Volatile override var connected = false; private set
@@ -100,6 +102,9 @@ class WebhookUplink(
         val o = offsets()
         var rounds = 0
         for (f in files) {
+            // A drive never sent from this phone may be in HA already (reinstall, another phone, a lost .sent):
+            // drives are keyed by their date-time, so ask before sending it again.
+            if (o[f.name] == null && alreadyThere(f)) { o[f.name] = f.length(); saveOffsets(o); continue }
             while (rounds++ < 40) {
                 val off = o[f.name] ?: 0L
                 val (rows, used) = readRows(f, off, MAX_ROWS)
@@ -114,6 +119,14 @@ class WebhookUplink(
         val idle = synchronized(lock) { status != null || defs.isNotEmpty() || extra.isNotEmpty() }
         if (idle) send(latest?.let { driveId(it) } ?: "live", emptyList(), true)
         return accepted
+    }
+
+    private fun alreadyThere(f: File): Boolean {
+        val last = lastTs(f) ?: return false
+        val reply = try { ask(url, MiniJson.write(mapOf("drive" to driveId(f), "rows" to emptyList<Any>()))) } catch (_: IOException) { null } ?: return false
+        val end = try { MiniJson.obj(reply)["have"].asMap()["end"].asDouble()?.toLong() } catch (_: Exception) { null } ?: return false
+        if (end >= last) log("drive ${driveId(f)} is already in Home Assistant, not sending it again")
+        return end >= last
     }
 
     private fun send(drive: String, rows: List<List<Any>>, withState: Boolean): Boolean {
@@ -178,6 +191,27 @@ class WebhookUplink(
                 if (rows.size >= max) break
             }
             return rows to used
+        }
+
+        /** The newest timestamp in the file's last few KB (GPS and OBD rows interleave slightly out of order). */
+        fun lastTs(f: File): Long? {
+            val len = f.length(); if (len == 0L) return null
+            val n = minOf(len, 8192L).toInt()
+            val buf = ByteArray(n)
+            RandomAccessFile(f, "r").use { it.seek(len - n); it.readFully(buf) }
+            return String(buf, Charsets.UTF_8).split('\n').dropLast(1).mapNotNull { it.substringBefore(',').toLongOrNull() }.maxOrNull()
+        }
+
+        fun httpAsk(url: String, body: String): String? {
+            val c = URL(url).openConnection() as HttpURLConnection
+            try {
+                c.requestMethod = "POST"; c.connectTimeout = 10_000; c.readTimeout = 30_000
+                c.setRequestProperty("Content-Type", "application/json")
+                c.doOutput = true
+                c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                if (c.responseCode !in 200..299) return null
+                return c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+            } finally { c.disconnect() }
         }
 
         fun httpPost(url: String, body: String): Int {

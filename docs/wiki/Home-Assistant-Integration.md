@@ -28,6 +28,10 @@ in `.sent` next to the drives.
 
 - **Upload past drives**: also sends the drive files from before you switched to the integration. Leave it off to
   start fresh.
+- No duplicates: drives are keyed by their date and time (`drive-20261125-082845.csv` → `20261125-082845`).
+  Before sending a drive with no record in `.sent`, the app asks; if HA already has its newest reading it is skipped.
+  Each reply carries `have` (`{"start", "end"}` of what is stored for that drive, or `null`). Rows sent twice are
+  ignored anyway.
 - Raw sweep candidates stay in the CSV only.
 - With *Send location to HA* on, GPS rows go into the CSV for the integration even if *Record GPS track* is off.
 

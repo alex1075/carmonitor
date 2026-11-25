@@ -4,6 +4,9 @@
 ### Added
 - **Upload drives** button (CarMonitor integration mode): sends every drive the integration hasn't fully accepted,
   now, with a count of what's left.
+- **No duplicate drive uploads.** Drives are keyed by their date and time. Before sending a drive this phone has no
+  record of sending (after a reinstall, from another phone), the app asks the integration what it has, and skips the
+  drive if its newest reading is already there. Rows that do arrive twice are still dropped by the integration.
 ### Fixed
 - **"Not connected" while the car was off**, in every connection mode: the status only updated during a drive. The
   app now checks the link every 30 s (MQTT connects, the HA API is asked, the integration gets an empty post).
