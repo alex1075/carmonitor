@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity(), Actions {
         super.onResume()
         refresh()
         tick()
+        idleProbe()
     }
 
     override fun onPause() {
@@ -91,6 +92,29 @@ class MainActivity : ComponentActivity(), Actions {
         model.state = Status.state; model.detail = Status.detail; model.mqtt = Status.mqtt
         model.dash = Status.dash; model.log = Status.logText()
         ui.postDelayed({ tick() }, 500)
+    }
+
+    private fun idle() = Status.state == "stopped" || Status.state.startsWith("error")
+
+    /** The service checks the uplink only while it runs; with the logger stopped, check it here for the chip. */
+    private fun idleProbe() {
+        if (idle()) Thread {
+            val ok = try { reachable() } catch (_: Exception) { false }
+            if (idle()) Status.mqtt = ok
+        }.start()
+        ui.postDelayed({ idleProbe() }, 30_000)
+    }
+
+    private fun reachable(): Boolean = when (prefs.connMode) {
+        "integration" -> prefs.webhookUrl.startsWith("http") &&
+            uk.co.ashunt.carmonitor.core.WebhookUplink.httpPost(prefs.webhookUrl, """{"drive":"test","rows":[]}""") in 200..299
+        "ha" -> prefs.haUrl.isNotBlank() && prefs.haToken.isNotEmpty() &&
+            uk.co.ashunt.carmonitor.core.HaRestSink.check(prefs.haUrl, prefs.haToken) == null
+        else -> prefs.brokerHost.isNotBlank() && run {
+            val m = uk.co.ashunt.carmonitor.core.MiniMqtt(prefs.brokerHost, prefs.brokerPort, "carmonitor-probe-" + Build.MODEL.replace(' ', '-'),
+                prefs.brokerUser.ifBlank { null }, prefs.brokerPass.ifBlank { null })
+            m.connect(timeoutMs = 6000); m.close(); true
+        }
     }
 
     /** Everything that comes from prefs or the profile (on start, resume and after a change). */
@@ -563,6 +587,7 @@ class MainActivity : ComponentActivity(), Actions {
                     -1 -> "Can't reach Home Assistant at that URL"
                     else -> "Integration test failed: HTTP $code"
                 }
+                if (idle()) Status.mqtt = code in 200..299
                 Status.log(msg); runOnUiThread { toast(msg) }
             }.start()
             return
