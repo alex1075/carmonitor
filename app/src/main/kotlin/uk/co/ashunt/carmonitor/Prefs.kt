@@ -26,12 +26,19 @@ class Prefs(private val ctx: Context) {
         set(v) = put("pass_enc", SecretStore.encrypt(v))
 
     // --- connection mode ------------------------------------------------------------
-    /** "mqtt" = direct to the broker; "ha" = Home Assistant REST API with a long-lived token. */
+    /** "mqtt" = direct to the broker; "ha" = Home Assistant REST API with a long-lived token;
+     *  "integration" = the CarMonitor HA integration's webhook. */
     var connMode: String get() = str("conn", "mqtt"); set(v) = put("conn", v)
     var haUrl: String get() = str("haurl", ""); set(v) = put("haurl", v)
     var haToken: String
         get() = secret("hatok_enc")
         set(v) = put("hatok_enc", SecretStore.encrypt(v))
+
+    /** The integration's webhook URL: its only credential, so encrypted like a token. */
+    var webhookUrl: String
+        get() = secret("hook_enc")
+        set(v) = put("hook_enc", SecretStore.encrypt(v))
+    var uploadPast: Boolean get() = sp.getBoolean("hook_past", false); set(v) = sp.edit().putBoolean("hook_past", v).apply()
 
     private fun secret(key: String, legacyPlainKey: String? = null): String {
         sp.getString(key, null)?.let { return SecretStore.decrypt(it) }
@@ -41,6 +48,8 @@ class Prefs(private val ctx: Context) {
     }
 
     fun connectionSummary(): String = when (connMode) {
+        "integration" -> if (webhookUrl.isEmpty()) "CarMonitor integration: webhook URL not set" else "CarMonitor integration · " +
+            webhookUrl.substringAfter("://").substringBefore('/') + (if (uploadPast) " · uploading past drives" else "")
         "ha" -> if (haUrl.isBlank()) "Home Assistant token: not set" else "Home Assistant API · $haUrl · token " + (if (haToken.isEmpty()) "missing" else "saved")
         else -> if (brokerHost.isBlank()) "MQTT broker: not set" else "MQTT · $brokerHost:$brokerPort" + (if (brokerUser.isNotBlank()) " · user $brokerUser" else "")
     }

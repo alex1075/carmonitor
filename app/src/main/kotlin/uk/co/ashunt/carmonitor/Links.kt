@@ -8,6 +8,7 @@ import uk.co.ashunt.carmonitor.core.ElmLink
 import uk.co.ashunt.carmonitor.core.MiniMqtt
 import uk.co.ashunt.carmonitor.core.HaRestSink
 import uk.co.ashunt.carmonitor.core.Uplink
+import uk.co.ashunt.carmonitor.core.WebhookUplink
 import uk.co.ashunt.carmonitor.core.StreamLink
 import java.io.IOException
 import java.util.UUID
@@ -102,5 +103,6 @@ class ReconnectingMqtt(
 /** Build the uplink chosen in settings. */
 fun Prefs.uplink(statusTopic: String, log: (String) -> Unit): Uplink = when (connMode) {
     "ha" -> HaRestSink(haUrl, haToken, log = log)
+    "integration" -> WebhookUplink(webhookUrl, logDir, statusTopic.removeSuffix("/logger/status"), uploadPast, log = log)
     else -> ReconnectingMqtt(brokerHost, brokerPort, brokerUser, brokerPass, statusTopic, log)
 }

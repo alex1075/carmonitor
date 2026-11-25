@@ -460,7 +460,8 @@ class MainActivity : ComponentActivity(), Actions {
 
         val modeMqtt = RadioButton(this).apply { text = "MQTT broker (username / password)"; id = View.generateViewId() }
         val modeHa = RadioButton(this).apply { text = "Home Assistant API (long-lived token)"; id = View.generateViewId() }
-        val group = RadioGroup(this).apply { addView(modeMqtt); addView(modeHa) }
+        val modeHook = RadioButton(this).apply { text = "CarMonitor integration (webhook)"; id = View.generateViewId() }
+        val group = RadioGroup(this).apply { addView(modeMqtt); addView(modeHa); addView(modeHook) }
         box.addView(group)
 
         val mqttBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -480,17 +481,29 @@ class MainActivity : ComponentActivity(), Actions {
         haBox.addView(lbl("Access token (HA → Profile → Security → Long-lived access tokens)")); haBox.addView(token); haBox.addView(showToggle(token))
         haBox.addView(lbl("Publishes via HA's mqtt.publish service, so the MQTT integration must be set up. Updates are batched every 3 s."))
 
-        box.addView(mqttBox); box.addView(haBox)
+        val hookBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val hook = secretField("https://…/api/webhook/…", prefs.webhookUrl.isNotEmpty())
+        val unsent = try { uk.co.ashunt.carmonitor.core.WebhookUplink(prefs.webhookUrl, prefs.logDir, "", true, worker = false).pending().size } catch (_: Exception) { 0 }
+        val past = CheckBox(this).apply { text = "Upload past drives ($unsent not yet sent)"; isChecked = prefs.uploadPast }
+        hookBox.addView(lbl("Webhook URL")); hookBox.addView(hook); hookBox.addView(showToggle(hook))
+        hookBox.addView(lbl("Paste the URL HA showed when you added the CarMonitor integration. Keep it private: it is the only credential."))
+        hookBox.addView(past)
+
+        box.addView(mqttBox); box.addView(haBox); box.addView(hookBox)
+        fun modeOf(id: Int) = when (id) { modeHa.id -> "ha"; modeHook.id -> "integration"; else -> "mqtt" }
         fun apply(mode: String) {
             mqttBox.visibility = if (mode == "mqtt") View.VISIBLE else View.GONE
             haBox.visibility = if (mode == "ha") View.VISIBLE else View.GONE
+            hookBox.visibility = if (mode == "integration") View.VISIBLE else View.GONE
         }
-        group.check(if (prefs.connMode == "ha") modeHa.id else modeMqtt.id)
+        group.check(when (prefs.connMode) { "ha" -> modeHa.id; "integration" -> modeHook.id; else -> modeMqtt.id })
         apply(prefs.connMode)
-        group.setOnCheckedChangeListener { _, id -> apply(if (id == modeHa.id) "ha" else "mqtt") }
+        group.setOnCheckedChangeListener { _, id -> apply(modeOf(id)) }
 
         fun store() {
-            prefs.connMode = if (group.checkedRadioButtonId == modeHa.id) "ha" else "mqtt"
+            prefs.connMode = modeOf(group.checkedRadioButtonId)
+            if (hook.text.isNotEmpty()) prefs.webhookUrl = hook.text.toString().trim()
+            prefs.uploadPast = past.isChecked
             prefs.brokerHost = host.text.toString().trim()
             prefs.brokerPort = port.text.toString().toIntOrNull() ?: 1883
             prefs.brokerUser = user.text.toString().trim()
@@ -516,6 +529,24 @@ class MainActivity : ComponentActivity(), Actions {
         val (cfgTopic, cfg) = uk.co.ashunt.carmonitor.core.HaDiscovery.connectionTest(t)
         val now = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.UK).format(java.util.Date())
         val ok = "In HA: device '${t.deviceName}' → 'Connection test' = OK $now"
+        if (prefs.connMode == "integration") {
+            val u = prefs.webhookUrl
+            if (!u.startsWith("http")) { toast("Paste the webhook URL first"); return }
+            toast("Testing the integration…")
+            Thread {
+                val code = try { uk.co.ashunt.carmonitor.core.WebhookUplink.httpPost(u, """{"drive":"test","rows":[]}""") } catch (e: Exception) { -1 }
+                val msg = when (code) {
+                    in 200..299 -> "The integration answered. In HA: the car's Logger sensor turns on while you drive." +
+                        (if (u.startsWith("http://") && !Regex("""^http://(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.|127\.)""").containsMatchIn(u))
+                            "\nWarning: plain http over the internet exposes the webhook. Use https." else "")
+                    404 -> "Webhook not found (404): check the URL, and that the integration is set up"
+                    -1 -> "Can't reach Home Assistant at that URL"
+                    else -> "Integration test failed: HTTP $code"
+                }
+                Status.log(msg); runOnUiThread { toast(msg) }
+            }.start()
+            return
+        }
         if (prefs.connMode == "ha") {
             val base = prefs.haUrl
             if (base.isBlank() || prefs.haToken.isEmpty()) { toast("Set the HA URL and token first"); return }

@@ -270,7 +270,8 @@ class ObdService : Service() {
                             if (gps?.running == true) {
                                 for (f in gps?.drain().orEmpty()) {
                                     lastFix = f
-                                    if (prefs.gpsRecord) {
+                                    // The integration reads position from the drive CSV.
+                                    if (prefs.gpsRecord || (prefs.gpsToHa && prefs.connMode == "integration")) {
                                         csvRow(w).row(f.tMs, "gps", "GPS_LAT", "%.7f".format(Locale.ROOT, f.lat), "")
                                         csvRow(w).row(f.tMs, "gps", "GPS_LON", "%.7f".format(Locale.ROOT, f.lon), "")
                                         f.speedMs?.let { csvRow(w).row(f.tMs, "gps", "GPS_SPEED_KMH", "%.1f".format(Locale.ROOT, it * 3.6), "") }

@@ -40,12 +40,15 @@ Discovery also saves them in the profile.
 3. **Car → Change vehicle** and search (for example `RAV4`, `Golf`, `Octavia`). The make is pre-filled from the VIN once discovery
    has run. Set the **model year** first: it selects the OBDb year file, and EU/JDM VINs carry no year code. If OBDb doesn't have your car,
    use **Generic OBD-II**.
-4. **Home Assistant → Edit connection** offers two ways to reach Home Assistant. Then tap **Send test**; a *Connection test* sensor should appear on the car's HA device.
+4. **Home Assistant → Edit connection** offers three ways to reach Home Assistant. Then tap **Send test**; a *Connection test* sensor should appear on the car's HA device.
    - **MQTT broker:** HA's Mosquitto add-on, ideally over Tailscale/NetBird rather than an open port, with a username and password.
    - **Home Assistant API:** your HA URL plus a **long-lived access token** (HA → Profile → Security). The app publishes through HA's
      `mqtt.publish` service, so you only need HTTPS to HA: no broker port and no VPN. Updates are batched every 3 s.
+   - **CarMonitor integration (preview):** install the integration from this repo (HACS), add it in HA, and paste the
+     webhook URL it shows. No admin token on the phone, nothing lost when the signal drops (rows are sent late with their
+     real times), and past drives can be uploaded. See the wiki's *HA integration* page.
 
-   The password and token are masked on screen and stored encrypted with the Android Keystore.
+   The password, token and webhook URL are masked on screen and stored encrypted with the Android Keystore.
 5. Engine on → **Car → Discover**. Logging starts when discovery finishes. **Discover + sweep** also scans Mode 22 DID
    ranges you choose (Home Assistant → Advanced), which helps find manufacturer values that OBDb doesn't document yet.
    Each car's profile is saved, and sweep results are kept per VIN, so switching cars or reinstalling (**Import profile**)

@@ -43,14 +43,15 @@ async def test_webhook_end_to_end(hass, hass_client_no_auth, hass_ws_client):
     url = '/api/webhook/' + entry.data['webhook_id']
     now = int(time.time() * 1000)
     body = {'drive': '20261125-082845', 'defs': {'RPM': {'name': 'Engine RPM', 'unit': 'rpm', 'expire': 60}},
-            'rows': [[now - 1000, 'RPM', 1490.0], [now, 'RPM', 1500.0], [now, 'GPS_LAT', 55.9], [now, 'GPS_LON', -3.1],
+            'rows': [[now - 1000, 'RPM', 1490.0], [now, 'RPM', 1500.0], [now, 'GPS_LAT', 55.9], [now, 'GPS_LON', -3.1], [now, 'dtc_codes', 'P0401'],
                      [now - 3600000, 'VSS', 40.0]]}
     resp = await client.post(url, json=body)
     assert resp.status == 200
-    assert (await resp.json())['stored'] == 5
+    assert (await resp.json())['stored'] == 6
     await hass.async_block_till_done()
     assert hass.states.get('sensor.test_car_engine_rpm').state == '1500.0'
     assert hass.states.get('binary_sensor.test_car_logger').state == 'on'
+    assert hass.states.get('sensor.test_car_dtc_codes').state == 'P0401'
     assert hass.states.get('device_tracker.test_car_location').attributes['latitude'] == 55.9
     # an hour-old backlog value is stored but not shown as current
     assert hass.states.get('sensor.test_car_vss').state == 'unavailable'
