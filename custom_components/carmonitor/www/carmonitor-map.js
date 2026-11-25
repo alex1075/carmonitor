@@ -45,6 +45,7 @@ function fmtDrive(d) {
 }
 
 function fmtNum(v) {
+  if (Number.isInteger(v)) return String(v);
   return Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2);
 }
 
@@ -107,8 +108,10 @@ class CarMonitorMap extends HTMLElement {
       const L = await loadLeaflet();
       if (this._map === undefined) {
         this._map = L.map(map, {preferCanvas: true, zoomControl: true});
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          {maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(this._map);
+        // CARTO basemaps, as HA's own map card uses; OSM's tile servers refuse requests without a referrer, which HA strips.
+        const style = this._hass.themes && this._hass.themes.darkMode === true ? 'dark_all' : 'rastertiles/voyager';
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/' + style + '/{z}/{x}/{y}{r}.png',
+          {maxZoom: 20, subdomains: 'abcd', attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>'}).addTo(this._map);
         this._map.setView([this._hass.config.latitude, this._hass.config.longitude], 12);
         new ResizeObserver(() => this._map.invalidateSize()).observe(map);
         this._layer = L.layerGroup().addTo(this._map);

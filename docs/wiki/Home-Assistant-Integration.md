@@ -35,7 +35,8 @@ height: 360        # optional, pixels
 - **Colour**: *None* for a plain line, or one signal at a time, coloured blue (lowest on the drive) to red (highest).
   Grey means no reading of that signal within 10 s of the GPS fix. A GPS gap over a minute leaves a hole.
 - Tap the line for the time and value at that point. The footer shows the distance and duration.
-- Your drive data stays in HA. The browser loads map tiles from OpenStreetMap, as HA's own map does.
+- Your drive data stays in HA. The browser loads map tiles (OpenStreetMap data) from CARTO, as HA's own map does; the
+  dark style follows HA's dark mode.
 
 ## What the app sends
 The drive CSV is the queue. Every 3 s the app sends each drive file's rows past what that file already had accepted

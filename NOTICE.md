@@ -4,7 +4,8 @@
 The drive map card bundles Leaflet 1.9.4 (https://leafletjs.com), unmodified, in
 `custom_components/carmonitor/www/leaflet/`: Copyright (c) 2010-2023, Volodymyr Agafonkin; Copyright (c) 2010-2011,
 CloudMade. BSD 2-Clause licence, full text in `custom_components/carmonitor/www/leaflet/LICENSE`. Map tiles are
-© OpenStreetMap contributors (https://www.openstreetmap.org/copyright), loaded by the browser at view time.
+© OpenStreetMap contributors (https://www.openstreetmap.org/copyright) and © CARTO (https://carto.com/attributions),
+loaded by the browser at view time.
 
 ## OBDb
 
