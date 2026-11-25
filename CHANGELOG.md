@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.0] - 2026-11-25
 ### Added
 - **Home Assistant integration (preview)**, `custom_components/carmonitor`, installable from HACS. Webhook in (no
   admin token on the phone), values stored with their real timestamps so late rows land at the right time, offline
