@@ -116,6 +116,8 @@ class MainActivity : ComponentActivity(), Actions {
         model.linked = isLinked()
         model.btAutostart = prefs.btAutostart
         model.connection = prefs.connectionSummary()
+        model.integration = prefs.connMode == "integration"
+        model.unsent = if (!model.integration) 0 else try { uploader().pending().size } catch (_: Exception) { 0 }
         model.topicBase = prefs.topicBase; model.deviceName = prefs.haDeviceName
         model.layout = prefs.layout; model.theme = prefs.theme; model.units = prefs.units()
         model.startOnBoot = prefs.autoStart; model.candidates = prefs.publishCandidates; model.logSweep = prefs.logSweepHits
@@ -521,6 +523,24 @@ class MainActivity : ComponentActivity(), Actions {
             .show()
         // Keep the dialog open while testing
         dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { store(); testConnection() }
+    }
+
+    private fun uploader() = uk.co.ashunt.carmonitor.core.WebhookUplink(prefs.webhookUrl, prefs.logDir, prefs.scheme().base, true, worker = false)
+
+    /** Send every drive file the integration hasn't fully accepted, now (duplicates are ignored on the HA side). */
+    override fun uploadDrives() {
+        if (!prefs.webhookUrl.startsWith("http")) { toast("Set the webhook URL first (Edit connection)"); return }
+        val todo = try { uploader().pending().size } catch (_: Exception) { 0 }
+        if (todo == 0) { toast("Every drive is already in Home Assistant"); return }
+        toast("Uploading $todo drives…")
+        Thread {
+            val up = uploader()
+            var rows = 0
+            for (i in 0 until 50) { val n = up.flush(); rows += n; if (n == 0) break }
+            val left = up.pending().size
+            val msg = if (left == 0) "Uploaded $todo drives ($rows readings)" else "Uploaded $rows readings; $left drives left: ${up.lastError ?: "will retry"}"
+            Status.log(msg); runOnUiThread { toast(msg); refresh() }
+        }.start()
     }
 
     /** Check the configured uplink and publish a 'Connection test' sensor HA can show. */

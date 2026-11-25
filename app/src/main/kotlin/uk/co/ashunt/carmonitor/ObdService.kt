@@ -155,6 +155,14 @@ class ObdService : Service() {
         val prefs = Prefs(this)
         val scheme = prefs.scheme()
         val mqtt = prefs.uplink(scheme.status) { Status.log(it) }
+        // Keep "Connected" honest while no drive is running, in every connection mode.
+        val prober = Thread({
+            while (true) {
+                try { mqtt.probe() } catch (_: Exception) {}
+                Status.mqtt = mqtt.connected
+                try { Thread.sleep(30_000) } catch (_: InterruptedException) { break }
+            }
+        }, "uplink-probe").apply { isDaemon = true; start() }
         try {
             while (running) {
                 // Settings changed: return so loop() rebuilds prefs, topics and the MQTT link.
@@ -323,7 +331,9 @@ class ObdService : Service() {
                 }
             }
         } finally {
+            prober.interrupt()
             mqtt.close()
+            Status.mqtt = false
             Status.state = "stopped"
         }
     }

@@ -72,6 +72,8 @@ class UiModel {
     var state by mutableStateOf("stopped")
     var detail by mutableStateOf("")
     var mqtt by mutableStateOf(false)
+    var integration by mutableStateOf(false)
+    var unsent by mutableStateOf(0)
     var dash by mutableStateOf<DashSnapshot?>(null)
     var log by mutableStateOf("")
     var vehicle by mutableStateOf("Generic OBD-II")
@@ -111,7 +113,7 @@ interface Actions {
     fun chooseDongle(); fun scanAndPair()
     fun setAutostart(on: Boolean); fun chooseCarDevices(); fun linkCompanion()
     fun importProfile(); fun exportProfile()
-    fun editConnection(); fun testConnection()
+    fun editConnection(); fun testConnection(); fun uploadDrives()
     fun setTopicBase(v: String); fun setDeviceName(v: String)
     fun setLayout(v: String); fun setTheme(v: String)
     fun setUnits(u: Units)
@@ -436,6 +438,11 @@ fun SettingsScreen(m: UiModel, a: Actions) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = a::editConnection) { Text("Edit connection") }
                 OutlinedButton(onClick = a::testConnection) { Text("Send test") }
+            }
+            if (m.integration) {
+                OutlinedButton(onClick = a::uploadDrives) { Text(if (m.unsent > 0) "Upload drives (${m.unsent})" else "Upload drives") }
+                Muted(if (m.unsent > 0) "${m.unsent} drives not fully sent yet. Uploading also runs by itself while the logger is on."
+                      else "Every drive on the phone is in Home Assistant.")
             }
         }
         Section("Naming in Home Assistant") {

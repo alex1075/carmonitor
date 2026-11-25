@@ -10,6 +10,8 @@ interface Uplink : Sink, Closeable {
     val connected: Boolean
     /** Human-readable description of the last error, or null. */
     val lastError: String?
+    /** Check the link while nothing is being sent, so [connected] means something when the car is off. */
+    fun probe() {}
 }
 
 /**
@@ -78,6 +80,12 @@ class HaRestSink(
             }
         }
         return ok
+    }
+
+    override fun probe() {
+        if (synchronized(lock) { pending.isNotEmpty() }) return   // the next flush will tell
+        val err = check(base, token)
+        connected = err == null; lastError = err
     }
 
     override fun close() {
