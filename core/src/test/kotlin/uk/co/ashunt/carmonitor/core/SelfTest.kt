@@ -503,6 +503,11 @@ object SelfTest {
         repeat(400) { eng.step(); now += 50 }
         eq(eng.unitCounts.second, 0, "unreliable batch split back into single requests")
         eq(eng.values["VSS"]?.first?.let { (it as Decoded.Num).v }, 50.0, "speed still read after the split")
+        // Token mode has no last-will: fast sensors expire after 60 s, and "online" repeats as a heartbeat.
+        val beats = out.count { it.first == TopicScheme.forVehicle(null).status && it.second == "online" }
+        eng.announce()
+        check(out.any { it.second.contains("\"state_topic\":\"$rpmTopic\"") && it.second.contains("\"expire_after\":60") }, "fast sensors expire after 60 s")
+        check(beats >= 2 && beats <= (now - start) / 30_000 + 1, "status heartbeat every 30 s: $beats in ${(now - start) / 1000} s")
 
         // An adapter that rejects response counts: requests still answer, and counts switch off.
         val f2 = FakeCx5().also { it.rejectCounts = true; it.rpm = 900.0 }

@@ -131,8 +131,9 @@ class LoggerEngine(
     }
     /** Requests per poll round for the log: (units, of which multi-PID batches). */
     val unitCounts: Pair<Int, Int> get() = units.size to units.count { it.batch }
-    /** HA expire_after: slow diagnostics may legitimately go minutes between polls on a busy adapter. */
-    internal fun expireFor(c: Command): Int = if ((tier[c.key] ?: 0) >= 1) 180 else 900
+    /** HA expire_after: fast values republish at least every 30 s, so 60 s of silence means the phone is gone
+     *  (token mode has no last-will). Slow diagnostics may legitimately go minutes between polls on a busy adapter. */
+    internal fun expireFor(c: Command): Int = when (tier[c.key] ?: 0) { 2 -> 60; 1 -> 180; else -> 900 }
     /** Commands per tier (fast, medium, slow), for the log. */
     val tierCounts: Triple<Int, Int, Int> get() = Triple(tier.values.count { it == 2 }, tier.values.count { it == 1 }, tier.values.count { it == 0 })
     val values = LinkedHashMap<String, Pair<Decoded, Long>>()   // signal id -> value, ts
@@ -175,7 +176,7 @@ class LoggerEngine(
     }
 
     fun announce() {
-        sink.publish(topics.status, "online", true)
+        pub(topics.status, "online", true, force = true)
         for ((t, p) in HaDiscovery.engineEntities(topics)) sink.publish(t, p, true)
         if (hasDpf) HaDiscovery.regenActive(topics).let { sink.publish(it.first, it.second, true) }
         if (hasFuel) for ((t, p) in HaDiscovery.fuelEntities(topics)) sink.publish(t, p, true)
@@ -208,6 +209,7 @@ class LoggerEngine(
         if (t - lastDtc >= cfg.dtcIntervalMs && (tripActive || lastDtc == 0L)) { readDtcs(); lastDtc = t }
         if (units.isEmpty()) { sleep(1000); return }
         maybeLogRate(t)
+        pub(topics.status, "online", true)   // heartbeat every republishMs, for the HA offline blueprint
         // Among the commands that are due, the highest tier goes first, then the most overdue, so a
         // saturated adapter starves diagnostics rather than speed/RPM.
         // Every FAIR_EVERY-th pick ignores tiers and takes the most overdue command, so a saturated

@@ -1,0 +1,37 @@
+blueprint:
+  name: CarMonitor offline after silence
+  description: >-
+    Marks a CarMonitor car offline when the phone stops sending (no signal, phone off, app killed).
+    Needed in HA API token mode, which has no MQTT last-will. While logging, CarMonitor repeats
+    "online" on the status topic every 30 s; if that stops, this publishes "offline" and every
+    entity of the car goes unavailable until the phone is back.
+  domain: automation
+  source_url: https://github.com/alex1075/carmonitor/blob/main/docs/ha/carmonitor-offline.yaml
+  input:
+    status_topic:
+      name: Status topic
+      description: The car's status topic, <base>/logger/status (for example car/toyota_rav4/logger/status).
+      selector:
+        text:
+    timeout:
+      name: Offline after
+      description: Seconds without an "online" heartbeat.
+      default: 90
+      selector:
+        number:
+          min: 45
+          max: 600
+          unit_of_measurement: s
+mode: restart
+triggers:
+  - trigger: mqtt
+    topic: !input status_topic
+    payload: online
+actions:
+  - delay:
+      seconds: !input timeout
+  - action: mqtt.publish
+    data:
+      topic: !input status_topic
+      payload: offline
+      retain: true
