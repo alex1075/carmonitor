@@ -49,6 +49,13 @@ class MainActivity : ComponentActivity(), Actions {
 
     companion object {
         const val ACTION_START_FROM_NOTIFICATION = "uk.co.ashunt.carmonitor.START"
+        const val EXTRA_START_KEY = "start_key"
+
+        /** A per-install secret: only our own notification knows it, so other apps can't start the logger. */
+        fun startKey(ctx: android.content.Context): String {
+            val sp = ctx.getSharedPreferences("trigger", MODE_PRIVATE)
+            return sp.getString("key", null) ?: java.util.UUID.randomUUID().toString().also { sp.edit().putString("key", it).apply() }
+        }
     }
 
     private lateinit var prefs: Prefs
@@ -72,7 +79,7 @@ class MainActivity : ComponentActivity(), Actions {
     }
 
     private fun handleIntent(i: Intent?) {
-        if (i?.action == ACTION_START_FROM_NOTIFICATION) { ObdService.start(this, ObdService.ACTION_LOG); toast("Logger started") }
+        if (i?.action == ACTION_START_FROM_NOTIFICATION && i.getStringExtra(EXTRA_START_KEY) == startKey(this)) { ObdService.start(this, ObdService.ACTION_LOG); toast("Logger started") }
     }
 
     override fun onResume() {

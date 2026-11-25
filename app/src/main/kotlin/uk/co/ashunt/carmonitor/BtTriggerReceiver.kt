@@ -63,7 +63,8 @@ class BtTriggerReceiver : BroadcastReceiver() {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("trigger", "Car detected", NotificationManager.IMPORTANCE_DEFAULT))
         val open = PendingIntent.getActivity(ctx, 2,
-            Intent(ctx, MainActivity::class.java).setAction(MainActivity.ACTION_START_FROM_NOTIFICATION),
+            Intent(ctx, MainActivity::class.java).setAction(MainActivity.ACTION_START_FROM_NOTIFICATION)
+                .putExtra(MainActivity.EXTRA_START_KEY, MainActivity.startKey(ctx)),
             PendingIntent.FLAG_IMMUTABLE)
         nm.notify(2, Notification.Builder(ctx, "trigger")
             .setSmallIcon(R.drawable.ic_car)

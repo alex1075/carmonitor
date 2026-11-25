@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.3] - 2026-11-25
+### Added
+- **Drive map card** (integration 0.2.0): `type: custom:carmonitor-map`, shipped inside the integration. Pick a stored
+  drive; the line is drawn on OpenStreetMap, coloured by one signal at a time (speed by default) or plain. Tap for the
+  time and value; distance and duration below. Bundles Leaflet 1.9.4 (BSD-2), so no code loads from outside HA.
+- Websocket `carmonitor/drives` accepts the car's name as well as its entry id, and without one picks the car that
+  drove most recently.
+### Security
+- RequestGuard no longer allows `ATCAF0`: with CAN auto-formatting off, an allowed request such as `0104` would go
+  out as a raw Mode 04 frame (clear DTCs). Nothing sent it, but the guard now enforces it.
+- Integration: at most 500 signals per car (a leaked webhook URL could otherwise create endless entities); malformed
+  `defs` and NaN/Infinity values are refused with 400; the drive and track websocket commands are admin-only.
+- App: other apps can no longer start the logger through the tap-to-start notification's intent; MQTT packet lengths and
+  JSON nesting depth are bounded, so a bad broker or file can't crash the app.
+- CI: pull requests and branch builds get a read-only token; only the tag release job can write. The release action is
+  pinned to a commit.
+- Test fixtures use a made-up VIN.
+
 ## [0.8.2] - 2026-11-25
 ### Fixed
 - **"Not connected" with the logger stopped.** The 0.8.1 check only ran inside the logger service. The app now checks

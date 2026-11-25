@@ -21,7 +21,8 @@ def test_store_dedupe_and_track(tmp_path):
 
 def test_payload_rejects_junk():
     for bad in [[], {'drive': '../x'}, {'drive': 'd', 'rows': [[1, 'RPM', 1]]}, {'drive': 'd', 'rows': [[T0, 'a b', 1]]},
-                {'drive': 'd', 'rows': [[T0, 'RPM', True]]}, {'drive': 'd', 'status': 'x'}]:
+                {'drive': 'd', 'rows': [[T0, 'RPM', True]]}, {'drive': 'd', 'status': 'x'}, {'drive': 'd', 'defs': ['RPM']},
+                {'drive': 'd', 'rows': [[T0, 'RPM', float('nan')]]}]:
         try:
             payload.parsePayload(bad, 100)
             assert False, bad
@@ -61,11 +62,20 @@ async def test_webhook_end_to_end(hass, hass_client_no_auth, hass_ws_client):
     resp = await client.post(url, json=body)
     assert (await resp.json())['stored'] == 0
     assert (await client.post(url, json={'drive': 'x', 'rows': [[1, 'RPM', 1]]})).status == 400
+    flood = {'drive': 'x', 'rows': [[now, 'S' + str(i), 1.0] for i in range(600)]}
+    assert (await client.post(url, json=flood)).status == 400
+    assert hass.states.get('sensor.test_car_s1') is None
     ws = await hass_ws_client(hass)
     await ws.send_json({'id': 1, 'type': 'carmonitor/drives'})
     m = await ws.receive_json()
     assert m['result']['drives'][0]['drive'] == '20261125-082845'
-    await ws.send_json({'id': 2, 'type': 'carmonitor/track', 'drive': '20261125-082845', 'signal': 'RPM'})
+    await ws.send_json({'id': 3, 'type': 'carmonitor/drives', 'entry_id': 'TEST CAR'})
+    assert (await ws.receive_json())['result']['entry_id'] == entry.entry_id
+    await ws.send_json({'id': 4, 'type': 'carmonitor/drives', 'entry_id': 'nope'})
+    assert (await ws.receive_json())['success'] == False
+    resp = await client.get('/carmonitor_static/carmonitor-map.js')
+    assert resp.status == 200 and 'carmonitor-map' in await resp.text()
+    await ws.send_json({'id': 5, 'type': 'carmonitor/track', 'drive': '20261125-082845', 'signal': 'RPM'})
     m = await ws.receive_json()
     assert m['result']['points'] == [[now, 55.9, -3.1, 1500.0]]
     # phone goes quiet: offline after the timeout

@@ -33,14 +33,26 @@ def is_online(entry):
 async def async_setup(hass, config):
     websocket_api.async_register_command(hass, ws_drives)
     websocket_api.async_register_command(hass, ws_track)
+    await registerCard(hass)
     return True
+
+async def registerCard(hass):
+    from homeassistant.components.http import StaticPathConfig
+    www = os.path.dirname(__file__) + '/www'
+    await hass.http.async_register_static_paths([StaticPathConfig(CARD_PATH, www, True)])
+    try:
+        from homeassistant.components.frontend import add_extra_js_url
+        add_extra_js_url(hass, CARD_PATH + '/carmonitor-map.js?v=' + CARD_VERSION)
+    except KeyError:
+        # no frontend loaded (tests, headless installs): the card can still be added as a dashboard resource
+        _LOGGER.debug('frontend not loaded, map card not auto-registered')
 
 async def async_setup_entry(hass: HomeAssistant, entry):
     folder = hass.config.path(DOMAIN)
     await hass.async_add_executor_job(lambda: os.makedirs(folder, exist_ok=True))
     con = await hass.async_add_executor_job(store.openStore, folder + '/' + entry.entry_id + '.db')
     known = await hass.async_add_executor_job(store.loadSignals, con)
-    entry.runtime_data = {'con': con, 'known': known, 'status': 'offline', 'last_seen': 0.0,
+    entry.runtime_data = {'con': con, 'known': known, 'seen': set(known), 'status': 'offline', 'last_seen': 0.0,
                           'add_sensor': None, 'position': None}
     webhook.async_register(hass, DOMAIN, entry.title, entry.data[CONF_WEBHOOK_ID], handleWebhook,
                            local_only=False, allowed_methods=['POST'])
@@ -81,6 +93,11 @@ async def handleWebhook(hass, webhook_id, request):
     except ValueError as e:
         return web.json_response({'ok': False, 'error': str(e)}, status=400)
     rt = entry.runtime_data
+    # Every new signal id becomes an entity: cap them so a leaked webhook URL can't flood HA with entities.
+    new = (set(p['defs']) | set(r[1] for r in p['rows'])) - rt['seen']
+    if len(rt['seen']) + len(new) > MAX_SIGNALS:
+        return web.json_response({'ok': False, 'error': 'more than ' + str(MAX_SIGNALS) + ' signals'}, status=400)
+    rt['seen'].update(new)
     stored = await hass.async_add_executor_job(store.insertRows, rt['con'], p['drive'], p['rows'])
     if len(p['defs']) > 0:
         await hass.async_add_executor_job(store.saveSignals, rt['con'], p['defs'])
@@ -101,24 +118,40 @@ async def handleWebhook(hass, webhook_id, request):
     have = await hass.async_add_executor_job(store.driveSpan, rt['con'], p['drive'])
     return web.json_response({'ok': True, 'rows': len(p['rows']), 'stored': stored, 'have': have})
 
-def pick_entry(hass, entry_id):
+def loaded_entries(hass, key=None):
+    """Set-up entries; key matches the entry id or the car's name (any case)."""
+    li = []
     for e in hass.config_entries.async_entries(DOMAIN):
-        if (entry_id is None or e.entry_id == entry_id) and getattr(e, 'runtime_data', None) is not None:
-            return e
-    return None
+        if getattr(e, 'runtime_data', None) is None:
+            continue
+        if key is None or e.entry_id == key or e.title.lower() == key.lower():
+            li.append(e)
+    return li
+
+def pick_entry(hass, key):
+    li = loaded_entries(hass, key)
+    return li[0] if len(li) > 0 else None
 
 @websocket_api.websocket_command({vol.Required('type'): 'carmonitor/drives', vol.Optional('entry_id'): str})
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_drives(hass, connection, msg):
-    e = pick_entry(hass, msg.get('entry_id'))
-    if e is None:
-        connection.send_error(msg['id'], 'not_found', 'no CarMonitor car set up')
+    li = loaded_entries(hass, msg.get('entry_id'))
+    if len(li) == 0:
+        connection.send_error(msg['id'], 'not_found', 'no CarMonitor car set up with that id or name')
         return
-    drives = await hass.async_add_executor_job(store.listDrives, e.runtime_data['con'])
+    # several cars and none named: the one that drove most recently
+    best = None
+    for e in li:
+        drives = await hass.async_add_executor_job(store.listDrives, e.runtime_data['con'])
+        if best is None or (len(drives) > 0 and (len(best[1]) == 0 or drives[0]['start'] > best[1][0]['start'])):
+            best = (e, drives)
+    e, drives = best
     connection.send_result(msg['id'], {'entry_id': e.entry_id, 'car': e.title, 'drives': drives})
 
 @websocket_api.websocket_command({vol.Required('type'): 'carmonitor/track', vol.Required('drive'): str,
                                   vol.Optional('signal'): str, vol.Optional('entry_id'): str})
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_track(hass, connection, msg):
     e = pick_entry(hass, msg.get('entry_id'))

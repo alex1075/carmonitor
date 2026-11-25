@@ -34,7 +34,7 @@ class FakeCx5 : ElmLink {
         "220451" -> (o2 * 100).toInt().let { listOf(it shr 8, it and 0xFF) } // CX5_OXY %, checked below
         "0105" -> listOf(90 + 40)
         "0142" -> listOf(0x36, 0xB0)                    // 14.0 V
-        "0902" -> listOf(0x01) + "JMZKFGW2600608992".map { it.code }
+        "0902" -> listOf(0x01) + "JMZXXXXXX00123456".map { it.code }
         "03" -> listOf(0x02, 0x04, 0x01, 0x24, 0xA5)    // P0401, P24A5
         "07" -> listOf(0x00)
         "22042B" -> listOf(0x01, 0x3F)                  // 3.19 with /100
@@ -134,8 +134,9 @@ object SelfTest {
             check(RequestGuard.isAllowed(ok), "should allow $ok")
         for (bad in listOf("04", "14FFFFFF", "2E042B01", "31010203", "1003", "1002", "1101", "2701", "2F030001",
                            "3E00", "8502", "34", "22042B00", "2204", "0C", "ATMA", "ATPP0CSV01", "ATBRD08",
-                           "ATSH18DA10F1", "010C\r04", "ZZ", "", "AT", "22042B\r2E"))
+                           "ATSH18DA10F1", "010C\r04", "ZZ", "", "AT", "22042B\r2E", "ATCAF0"))
             check(!RequestGuard.isAllowed(bad), "should refuse '$bad'")
+        check(runCatching { MiniJson.parse("[".repeat(100000)) }.exceptionOrNull() is IllegalArgumentException, "deep JSON refused, not a stack overflow")
         val elm = Elm327(FakeCx5())
         var threw = false
         try { elm.request("2E042B01") } catch (_: RequestGuard.Refused) { threw = true }
@@ -175,7 +176,7 @@ object SelfTest {
         eq(Decoder.decode(typ, byteArrayOf(0, 0x02, 0, 0, 0, 0, 0)), Decoded.Text("Active"), "enum map")
         val (_, ect) = lib.signal("ECT")!!
         eq((Decoder.decode(ect, byteArrayOf(130.toByte())) as Decoded.Num).v, 90.0, "ECT offset")
-        eq(VehicleProfile.yearFromVin("JMZKFGW2600608992"), null, "EU VIN has no year code")
+        eq(VehicleProfile.yearFromVin("JMZXXXXXX00123456"), null, "EU VIN has no year code")
         eq(VehicleProfile.yearFromVin("1HGCM82633A004352"), 2003, "US VIN year")
         check(YearFilter(to = 2016, from = 2022).matches(2016) && !YearFilter(to = 2016, from = 2022).matches(2017), "year filter")
         val ov = lib.commands.first { it.key == "7E0:22042B" }
@@ -190,7 +191,7 @@ object SelfTest {
         val elm = Elm327(fake).also { it.init() }
         val prof = Discoverer(elm, lib, DiscoverOptions(yearOverride = 2017,
             sweep = listOf(SweepRange("7E0", 0x0C40, 0x0C44)), delayMs = 0), sleep = {}).run()
-        eq(prof.vin, "JMZKFGW2600608992", "VIN")
+        eq(prof.vin, "JMZXXXXXX00123456", "VIN")
         eq(prof.modelYear, 2017, "year override")
         check("0C" in prof.mode01Supported && "42" in prof.mode01Supported, "bitmap parse ${prof.mode01Supported}")
         eq(prof.results["7E0:010C"]?.support, Support.SUPPORTED, "RPM supported")
@@ -303,7 +304,7 @@ object SelfTest {
         eq(ObdbCatalog.chooseFile(files, 2014), "2012-2020.json", "year in wider range")
         eq(ObdbCatalog.chooseFile(files, 2023), "default.json", "fallback to default")
         eq(ObdbCatalog.chooseFile(files, null), "default.json", "no year -> default")
-        eq(Wmi.make("JMZKFGW2600608992"), "Mazda", "WMI Mazda")
+        eq(Wmi.make("JMZXXXXXX00123456"), "Mazda", "WMI Mazda")
         eq(Wmi.make("XXX"), null, "unknown WMI")
         val (tt, tc) = HaDiscovery.connectionTest(TopicScheme.forVehicle(VehicleRef("Toyota-RAV4", "Toyota", "RAV4")))
         eq(tt, "homeassistant/sensor/carmonitor_toyota_rav4_connection_test/config", "test sensor topic")
@@ -527,7 +528,7 @@ object SelfTest {
         val up = WebhookUplink("http://x/api/webhook/abc", dir, "car/test", uploadPast = false, now = { t },
             post = { _, b -> bodies += b; code }, ask = { _, _ -> if (code == 200) """{"ok":true,"have":null}""" else null }, worker = false)
         val cur = java.io.File(dir, "drive-20261125-082845.csv")
-        cur.writeText("ts_ms,key,signal,value,raw\n$t,7E0:010C,RPM,1500,0BB8\n${t + 1},7E0:22044B,raw,122,007A\n${t + 2},gps,GPS_LAT,55.9043682,\n${t + 3},7E0:010D,VS")
+        cur.writeText("ts_ms,key,signal,value,raw\n$t,7E0:010C,RPM,1500,0BB8\n${t + 1},7E0:22044B,raw,122,007A\n${t + 2},gps,GPS_LAT,55.95,\n${t + 3},7E0:010D,VS")
         up.publish("homeassistant/sensor/test_rpm/config", """{"name":"Engine RPM","state_topic":"car/test/sig/RPM","unit_of_measurement":"rpm","state_class":"measurement","expire_after":60}""", true)
         up.publish("car/test/logger/status", "online", true)
         up.publish("car/test/sig/RPM", "1500", false)

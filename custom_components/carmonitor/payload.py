@@ -1,3 +1,4 @@
+import math
 import re
 
 SIG_RE = re.compile('^[A-Za-z0-9_]{1,64}$')
@@ -26,7 +27,10 @@ def parsePayload(data, max_rows):
     if status not in (None, 'online', 'offline'):
         raise ValueError('bad status')
     defs = {}
-    for sig, d in (data.get('defs') or {}).items():
+    raw_defs = data.get('defs') or {}
+    if isinstance(raw_defs, dict) == False:
+        raise ValueError('defs must be an object')
+    for sig, d in raw_defs.items():
         if SIG_RE.match(sig) is None or isinstance(d, dict) == False:
             raise ValueError('bad def ' + str(sig)[:64])
         expire = d.get('expire', None)
@@ -48,6 +52,8 @@ def parsePayload(data, max_rows):
             raise ValueError('bad signal id')
         if isinstance(v, bool) or (v is not None and isinstance(v, (int, float, str)) == False):
             raise ValueError('bad value for ' + sig)
+        if isinstance(v, float) and math.isfinite(v) == False:
+            raise ValueError('value not finite for ' + sig)
         if isinstance(v, str) and len(v) > 255:
             raise ValueError('value too long for ' + sig)
         out.append((ts, sig, v))

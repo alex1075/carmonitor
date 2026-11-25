@@ -11,3 +11,7 @@ DEFAULT_EXPIRE = 60
 MAX_ROWS = 20000
 # Position goes to the device tracker, not to sensors.
 NO_SENSOR = ['GPS_LAT', 'GPS_LON', 'GPS_ACC_M']
+
+CARD_PATH = '/carmonitor_static'
+CARD_VERSION = '0.2.0'
+MAX_SIGNALS = 500
