@@ -10,14 +10,26 @@ An optional custom integration, an alternative to MQTT and the HA API token. The
 - **Built-in store.** Every value is kept in a SQLite file under `config/carmonitor/` (included in HA backups). It feeds
   the drive map. Optionally every value is also copied to your own InfluxDB, with its real timestamp.
 
-> Status: the integration side is in place. The app's *CarMonitor integration* connection mode, past-drive import and
-> the drive map card come next.
+> Status: preview. The drive map card comes next.
 
 ## Install
 1. HACS → ⋮ → *Custom repositories* → `https://github.com/alex1075/carmonitor`, type *Integration*. Install
    *CarMonitor*, then restart HA.
 2. Settings → Devices & services → *Add integration* → *CarMonitor*. Name the car. HA shows the webhook URL.
 3. Options (on the integration's card): offline timeout, and InfluxDB if you want a copy there.
+4. In the app: **Home Assistant → Edit connection → CarMonitor integration**, paste the webhook URL, **Test**, **Save**,
+   then stop and start the logger.
+
+## What the app sends
+The drive CSV is the queue. Every 3 s the app sends each drive file's rows past what that file already had accepted
+(at most 5000 per request), then the latest status, names and derived values (trip, fuel, DTCs). After a dropout it
+carries on from where it stopped, oldest first, so the gap fills in with the real times. How far each file got is kept
+in `.sent` next to the drives.
+
+- **Upload past drives**: also sends the drive files from before you switched to the integration. Leave it off to
+  start fresh.
+- Raw sweep candidates stay in the CSV only.
+- With *Send location to HA* on, GPS rows go into the CSV for the integration even if *Record GPS track* is off.
 
 ## InfluxDB (optional)
 InfluxDB 2.x: URL (for example `http://influxdb:8086`), organisation, bucket and an API token with write access.

@@ -517,6 +517,43 @@ object SelfTest {
         check(e2.request("010C") is ObdResponse.Positive, "and requests still answer")
     }
 
+    fun webhook() {
+        val dir = java.nio.file.Files.createTempDirectory("cm-hook").toFile()
+        var t = 1_795_595_000_000L
+        val bodies = mutableListOf<String>()
+        var code = 503
+        val old = java.io.File(dir, "drive-20261124-160628.csv").apply { writeText("ts_ms,key,signal,value,raw\n$t,7E0:010C,RPM,800,\n") }
+        old.setLastModified(1000)
+        val up = WebhookUplink("http://x/api/webhook/abc", dir, "car/test", uploadPast = false, now = { t },
+            post = { _, b -> bodies += b; code }, worker = false)
+        val cur = java.io.File(dir, "drive-20261125-082845.csv")
+        cur.writeText("ts_ms,key,signal,value,raw\n$t,7E0:010C,RPM,1500,0BB8\n${t + 1},7E0:22044B,raw,122,007A\n${t + 2},gps,GPS_LAT,55.9043682,\n${t + 3},7E0:010D,VS")
+        up.publish("homeassistant/sensor/test_rpm/config", """{"name":"Engine RPM","state_topic":"car/test/sig/RPM","unit_of_measurement":"rpm","state_class":"measurement","expire_after":60}""", true)
+        up.publish("car/test/logger/status", "online", true)
+        up.publish("car/test/sig/RPM", "1500", false)
+        up.publish("car/test/dtc/codes", "P0401,P24A5", true)
+        eq(up.flush(), 0, "webhook down: nothing accepted")
+        code = 200
+        eq(up.flush(), 2, "after the dropout the backlog goes out: RPM and GPS, not the raw candidate or the half-written line")
+        val rich = bodies.last { it.contains("GPS_LAT") }
+        java.io.File(System.getProperty("java.io.tmpdir"), "carmonitor-webhook-sample.json").writeText(rich)
+        val b = MiniJson.obj(rich)
+        eq(b["drive"], "20261125-082845", "drive id from the file name")
+        eq(b["status"], "online", "status rides along")
+        check((b["defs"] as Map<*, *>).containsKey("RPM"), "names and units from discovery: ${b["defs"]}")
+        check(b["rows"].toString().contains("dtc_codes") && b["rows"].toString().contains("P0401,P24A5"), "derived values as rows: ${b["rows"]}")
+        check(bodies.none { it.contains("\"800\"") || it.contains(",800]") }, "drives from before the integration aren't sent unless asked")
+        eq(up.flush(), 0, "nothing sent twice")
+        cur.appendText("S,40,\n")
+        bodies.clear()
+        eq(up.flush(), 1, "the rest of the half-written line once it is complete")
+        check(bodies.size == 1 && !bodies[0].contains("defs"), "accepted names aren't re-sent")
+        val past = WebhookUplink("http://x", dir, "car/test", uploadPast = true, post = { _, bb -> bodies += bb; 200 }, worker = false)
+        eq(past.pending().map { it.name }, listOf("drive-20261124-160628.csv"), "past drives: only the ones not yet sent")
+        eq(past.flush(), 1, "past drive uploaded")
+        dir.deleteRecursively()
+    }
+
     fun sweepStore() {
         val a = listOf(ProbeResult("7E0:220308", Support.SUPPORTED, "037A"), ProbeResult("7E0:22044B", Support.SUPPORTED, "003D"))
         val b = listOf(ProbeResult("7E0:22044B", Support.SUPPORTED, "0042"), ProbeResult("7E0:220594", Support.SUPPORTED, "46F3"))
@@ -593,6 +630,7 @@ object SelfTest {
         sweepStore()
         units()
         gps()
+        webhook()
         eq(Elm327(FakeCx5()).also { it.init() }.adapterWarnings, emptyList<String>(), "good adapter -> no warnings")
         System.getenv("MQTT_TEST_PORT")?.toIntOrNull()?.let { port ->
             val m = MiniMqtt("127.0.0.1", port, "selftest", "user", "pa55", keepAliveSec = 2,

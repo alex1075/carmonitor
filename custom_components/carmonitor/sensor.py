@@ -37,7 +37,7 @@ class CarSensor(CarEntity, SensorEntity):
         d = entry.runtime_data['known'].get(sig, {})
         self._attr_name = d.get('name') or sig
         self.expire = d.get('expire') or DEFAULT_EXPIRE
-        if d.get('text') != True:
+        if d.get('text') != True and isinstance(self.value, str) == False:
             self._attr_native_unit_of_measurement = d.get('unit')
             self._attr_state_class = SensorStateClass.MEASUREMENT
             self._attr_device_class = DEVICE_CLASS.get(d.get('unit'))

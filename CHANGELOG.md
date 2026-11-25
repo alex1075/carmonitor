@@ -4,8 +4,10 @@
 ### Added
 - **Home Assistant integration (preview)**, `custom_components/carmonitor`, installable from HACS. Webhook in (no
   admin token on the phone), values stored with their real timestamps so late rows land at the right time, offline
-  status built in, a built-in store for the coming drive map, and an optional copy to your own InfluxDB. The app side
-  comes next. See the wiki.
+  status built in, a built-in store for the coming drive map, and an optional copy to your own InfluxDB. See the wiki.
+- **App: *CarMonitor integration* connection mode.** Paste the integration's webhook URL. The drive CSVs are the
+  queue: rows go out every 3 s and, after a dropout, the backlog follows with the real timestamps. *Upload past drives*
+  sends the older drive files too.
 
 ## [0.7.2] - 2026-11-24
 ### Changed
