@@ -97,6 +97,9 @@ class ReconnectingMqtt(
     }
 
     @Synchronized
+    override fun probe() { ensure() }
+
+    @Synchronized
     override fun close() { client?.close(); client = null }
 }
 

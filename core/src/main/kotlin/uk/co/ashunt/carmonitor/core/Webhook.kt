@@ -34,6 +34,7 @@ class WebhookUplink(
     private val baselineFile = File(dir, ".sent-since")
     @Volatile private var running = true
     private var lastFail = ""
+    @Volatile private var lastOk = 0L
 
     private val thread = if (!worker) null else Thread({
         while (running) {
@@ -125,7 +126,7 @@ class WebhookUplink(
         if (d.isNotEmpty()) body["defs"] = d
         val code = try { post(url, MiniJson.write(body)) } catch (e: IOException) { -1.also { lastError = "unreachable: ${e.message}" } }
         if (code in 200..299) {
-            connected = true; lastError = null; lastFail = ""
+            connected = true; lastError = null; lastFail = ""; lastOk = now()
             synchronized(lock) {
                 if (st != null && status == st) status = null
                 for (k in d.keys) if (defs[k] == d[k]) defs.remove(k)
@@ -137,6 +138,12 @@ class WebhookUplink(
         if (code >= 0) lastError = when (code) { 404 -> "webhook not found (404): check the URL"; 400 -> "integration rejected the data (400)"; else -> "HTTP $code" }
         if (lastError != lastFail) { lastFail = lastError ?: ""; log("integration: $lastError") }
         return false
+    }
+
+    /** An empty post (no rows, no status) when nothing went out for a minute: the car stays offline in HA. */
+    override fun probe() {
+        if (now() - lastOk < 60_000) return
+        synchronized(this) { send("live", emptyList(), false) }
     }
 
     override fun close() {

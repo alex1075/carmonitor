@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+### Added
+- **Upload drives** button (CarMonitor integration mode): sends every drive the integration hasn't fully accepted,
+  now, with a count of what's left.
+### Fixed
+- **"Not connected" while the car was off**, in every connection mode: the status only updated during a drive. The
+  app now checks the link every 30 s (MQTT connects, the HA API is asked, the integration gets an empty post).
+
 ## [0.8.0] - 2026-11-25
 ### Added
 - **Home Assistant integration (preview)**, `custom_components/carmonitor`, installable from HACS. Webhook in (no
