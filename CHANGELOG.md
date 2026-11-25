@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+### Fixed
+- **"Not connected" with the logger stopped.** The 0.8.1 check only ran inside the logger service. The app now checks
+  the connection itself every 30 s while it is open and the logger is stopped, and a successful **Test** updates the
+  chip at once.
+
 ## [0.8.1] - 2026-11-25
 ### Added
 - **Upload drives** button (CarMonitor integration mode): sends every drive the integration hasn't fully accepted,
