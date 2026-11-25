@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a car",
+        "description": "One entry per car. After saving, HA shows the webhook URL to enter in the CarMonitor app.",
+        "data": {
+          "name": "Car name"
+        }
+      }
+    },
+    "create_entry": {
+      "default": "Done. In the CarMonitor app choose Connection → CarMonitor integration and enter this URL (keep it private, it is the only credential):\n\n{webhook_url}"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "CarMonitor options",
+        "description": "Webhook URL for the app (keep it private): {webhook_url}\n\nEverything is kept in CarMonitor's built-in store (used by the drive map). Fill in InfluxDB to also copy every value there with its real timestamp.",
+        "data": {
+          "offline_after": "Mark the car offline after (seconds without data)",
+          "influx_url": "InfluxDB URL (optional)",
+          "influx_org": "InfluxDB organisation",
+          "influx_bucket": "InfluxDB bucket (1.x: database/retention)",
+          "influx_token": "InfluxDB token (1.x: user:password)"
+        }
+      }
+    }
+  }
+}

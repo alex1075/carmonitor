@@ -1,0 +1,40 @@
+# Home Assistant integration (preview)
+
+An optional custom integration, an alternative to MQTT and the HA API token. The phone posts batches to a webhook, so:
+
+- **No admin token on the phone.** The webhook URL is the only credential; keep it private.
+- **Nothing is lost when the signal drops.** Each value carries its real timestamp. Rows sent late are stored at the
+  time they were read; sensors show only what is still current. Re-sending is harmless (duplicates are ignored).
+- **Offline built in.** The *Logger* connectivity sensor turns off, and every sensor goes unavailable, after 90 s
+  without data (configurable). No blueprint needed.
+- **Built-in store.** Every value is kept in a SQLite file under `config/carmonitor/` (included in HA backups). It feeds
+  the drive map. Optionally every value is also copied to your own InfluxDB, with its real timestamp.
+
+> Status: the integration side is in place. The app's *CarMonitor integration* connection mode, past-drive import and
+> the drive map card come next.
+
+## Install
+1. HACS → ⋮ → *Custom repositories* → `https://github.com/alex1075/carmonitor`, type *Integration*. Install
+   *CarMonitor*, then restart HA.
+2. Settings → Devices & services → *Add integration* → *CarMonitor*. Name the car. HA shows the webhook URL.
+3. Options (on the integration's card): offline timeout, and InfluxDB if you want a copy there.
+
+## InfluxDB (optional)
+InfluxDB 2.x: URL (for example `http://influxdb:8086`), organisation, bucket and an API token with write access.
+InfluxDB 1.8+: leave organisation empty, bucket `database/retention` (or just `database`), token `user:password`.
+Points are written as measurement `carmonitor`, tags `car` and `drive`, one field per signal.
+
+## Webhook format
+`POST /api/webhook/<id>` with JSON:
+
+```json
+{"drive": "20261125-082845", "status": "online",
+ "defs": {"RPM": {"name": "Engine RPM", "unit": "rpm", "expire": 60}},
+ "rows": [[1795595335668, "RPM", 1500.0], [1795595335668, "GPS_LAT", 55.9]]}
+```
+
+- `rows`: `[time in ms, signal id, value]`, a number or short text; at most 20 000 per request.
+- `defs`: names and units, sent when a signal first appears. `expire`: seconds before that sensor goes unavailable.
+- `status`: `offline` on a clean stop. Any rows imply `online`.
+- `GPS_LAT`/`GPS_LON` feed the *Location* tracker and the map, not sensors.
+- Reply: `{"ok": true, "rows": 2, "stored": 2}`; 400 with a reason for a malformed body.
