@@ -13,6 +13,11 @@
 - An ECU that ignores extra PIDs in a request makes the app fall back to one PID per request for that session.
 - Android Auto refreshes every second; the phone dashboard twice a second.
 
+### Fixed
+- **Car stayed "online" in HA when the phone lost signal (HA API token mode).** Fast sensors now expire after 60 s
+  without data (was 180 s), and the status topic repeats `online` every 30 s. A new blueprint
+  (`docs/ha/carmonitor-offline.yaml`, see the wiki) marks the car offline 90 s after the heartbeat stops.
+
 ## [0.7.1] - 2026-11-24
 ### Fixed
 - **Exhaust and DPF sensors flicking to unavailable in Home Assistant.** On a busy adapter the slow polling tier could be

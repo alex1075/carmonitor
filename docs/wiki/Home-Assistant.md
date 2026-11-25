@@ -3,14 +3,15 @@
 ## Connection modes
 - **MQTT broker:** direct to Mosquitto, with a last-will so `logger/status` turns `offline` if the phone vanishes.
 - **HA API token:** HA's `mqtt.publish` service over HTTPS. Same topics and entities, coalesced every 3 s. There's no last-will:
-  `offline` is published on a clean stop, and live sensors expire via `expire_after` otherwise.
+  `offline` is published on a clean stop. If the phone just drops out, fast sensors expire after 60 s, and the
+  [offline blueprint](#offline-when-the-phone-drops-out) marks the whole car offline.
 
 ## Topics (generic layout)
 With base `car/<slug>`:
 
 | Topic | Payload |
 |---|---|
-| `<base>/logger/status` | `online` / `offline` (retained, last-will) |
+| `<base>/logger/status` | `online` / `offline` (retained, last-will; `online` repeats every 30 s while logging) |
 | `<base>/sig/<SIGNAL_ID>` | decoded value, for example `car/toyota_rav4/sig/ECT` → `88` |
 | `<base>/trip_active` | `on` / `off` |
 | `<base>/trip/distance_km`, `<base>/trip/last_distance_km` | km |
@@ -81,3 +82,10 @@ actions:
 ```
 
 Entity ids depend on your device name. Check them under the device page.
+
+## Offline when the phone drops out
+In HA API token mode HA can't tell when the phone loses signal. Import the blueprint once
+(Settings → Automations & scenes → Blueprints → Import blueprint) from
+`https://github.com/alex1075/carmonitor/blob/main/docs/ha/carmonitor-offline.yaml`, then create an automation from it with
+your car's `<base>/logger/status` topic. After 90 s without the 30 s heartbeat it publishes `offline`, so every entity
+goes unavailable until the phone is back. Harmless in direct-MQTT mode, where the last-will already does this.
