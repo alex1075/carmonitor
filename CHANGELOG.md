@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.2] - 2026-11-25
 ### Fixed
 - **"Not connected" with the logger stopped.** The 0.8.1 check only ran inside the logger service. The app now checks
   the connection itself every 30 s while it is open and the logger is stopped, and a successful **Test** updates the
