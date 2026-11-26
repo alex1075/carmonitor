@@ -4,6 +4,7 @@ let suites: [(String, () async throws -> Void)] = [
     ("guard", guardTests),
     ("signals", signalTests),
     ("elm", elmTests),
+    ("logger", loggerTests),
 ]
 for (name, run) in suites {
     do { try await run() } catch { failed += 1; print("FAIL \(name): threw \(error)") }
