@@ -73,7 +73,7 @@ public actor Uploader {
         let o = offsets()
         return driveFiles().filter { f in
             let mod = ((try? FileManager.default.attributesOfItem(atPath: f.path))?[.modificationDate] as? Date) ?? .distantPast
-            return (uploadPast || Int64(mod.timeIntervalSince1970 * 1000) >= since) && Uploader.size(f) > (o[f.lastPathComponent] ?? 0)
+            return (uploadPast || Int64(mod.timeIntervalSince1970 * 1000) >= since) && Uploader.wholeSize(f) > (o[f.lastPathComponent] ?? 0)
         }
     }
 
@@ -178,6 +178,17 @@ public actor Uploader {
             if rows.count >= max { break }
         }
         return (rows, used)
+    }
+
+    /// Bytes up to and including the last newline: a partial last line (app killed mid-write) isn't sendable.
+    public static func wholeSize(_ f: URL) -> Int64 {
+        let len = size(f)
+        guard len > 0, let h = try? FileHandle(forReadingFrom: f) else { return 0 }
+        defer { try? h.close() }
+        let n = min(len, 65536)
+        try? h.seek(toOffset: UInt64(len - n))
+        guard let buf = try? h.read(upToCount: Int(n)), let i = buf.lastIndex(of: 0x0A) else { return len - n }
+        return len - n + Int64(i - buf.startIndex) + 1
     }
 
     /// The newest timestamp in the file's last 8 KB.

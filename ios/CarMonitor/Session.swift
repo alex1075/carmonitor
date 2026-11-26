@@ -105,6 +105,14 @@ final class Session: ObservableObject {
                     try await Task.sleep(for: .seconds(10)); continue
                 }
                 let used = cmds.filter { keys.contains($0.key) }
+                // An adapter powered from the OBD port stays up with the engine off: only start a drive (CSV, GPS)
+                // when the car actually answers.
+                if let c = used.first(where: { $0.service == "01" }) ?? used.first,
+                   case .positive = try await elm.request(c.request, hdr: c.hdr, rax: .some(c.rax)) {} else {
+                    state = "Car is off: waiting"
+                    ble.disconnect()
+                    try await Task.sleep(for: .seconds(30)); continue
+                }
                 let names = Dictionary(used.flatMap { c in c.signals.map { ($0.id, ($0.name, HaDefs.haUnit($0.fmt.unit) ?? "")) } }, uniquingKeysWith: { a, _ in a })
                 let d = try CsvLog(dir: Session.drivesDir)
                 drive = d; csv = d

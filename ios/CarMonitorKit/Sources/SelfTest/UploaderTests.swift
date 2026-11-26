@@ -45,6 +45,8 @@ func uploaderTests() async throws {
     let h = try FileHandle(forWritingTo: f); try h.seekToEnd(); try h.write(contentsOf: Data("0,\n".utf8)); try h.close()
     eq(await up.flush(), 1, "completed last line sent")
     eq(await up.pending().count, 0, "nothing pending")
+    let h2 = try FileHandle(forWritingTo: f); try h2.seekToEnd(); try h2.write(contentsOf: Data("\(t + 9),7E0:01".utf8)); try h2.close()
+    eq(await up.pending().count, 0, "a partial last line (app killed mid-write) is not pending")
 
     // HA already has a drive this phone never sent: skipped, not re-sent.
     let g = dir.appendingPathComponent("drive-20261126-090000.csv")

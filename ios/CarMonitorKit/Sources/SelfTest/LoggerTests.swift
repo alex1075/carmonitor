@@ -35,6 +35,7 @@ func loggerTests() async throws {
     check(lines.contains { $0.contains(",7E0:22042B,raw,319,013F") }, "raw row for an unvalidated command")
     check(lines.contains { $0.contains(",7E0:22042B,CAND,319,013F") }, "candidate value carries raw hex")
     eq(seen.get("RPM"), .num(750), "live value callback")
+    try await silenceAndRefusedTests(lib: lib)
     eq(Logger.fmtNum(12.5), "12.5", "fmt decimals"); eq(Logger.fmtNum(3), "3", "fmt integer"); eq(Logger.fmtNum(0.1234), "0.123", "fmt 3 dp")
     try? FileManager.default.removeItem(at: dir)
 }

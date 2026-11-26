@@ -132,7 +132,11 @@ final class BleLink: NSObject, ElmTransport, CBCentralManagerDelegate, CBPeriphe
 
     func centralManagerDidUpdateState(_ c: CBCentralManager) {
         if c.state == .poweredOn && scanning { c.scanForPeripherals(withServices: nil) }
-        if c.state != .poweredOn { isConnected = false }
+        if c.state != .poweredOn {
+            // iOS drops pending connects silently when Bluetooth goes off: fail them so the session retries.
+            isConnected = false
+            finishConnect(BleError.off)
+        }
     }
 
     func centralManager(_ c: CBCentralManager, willRestoreState dict: [String: Any]) {

@@ -25,11 +25,18 @@ public actor Logger {
     private let log: @Sendable (String) -> Void
     private var units: [Unit] = []
     public private(set) var polls = 0
+    /// No good reply for this long: the car is off (the adapter may stay powered), so run() ends.
+    public static let silenceLimit: TimeInterval = 60
+    public struct Silent: Error, LocalizedError { public var errorDescription: String? { "the car stopped answering" } }
+    private var lastGood: TimeInterval = 0
 
     public init(elm: Elm327, commands: [Command], csv: CsvLog?, now: @escaping @Sendable () -> Date = { Date() },
                 log: @escaping @Sendable (String) -> Void = { _ in },
                 onValue: @escaping @Sendable (String, Decoded, Int64) -> Void) {
-        self.elm = elm; self.commands = commands; self.csv = csv; self.now = now; self.log = log; self.onValue = onValue
+        // An OBDb entry the guard would refuse (other service, 29-bit header) is dropped here, so it can't abort polling.
+        let allowed = commands.filter { RequestGuard.isAllowed($0.request) && RequestGuard.routeAllowed(hdr: $0.hdr, rax: $0.rax) }
+        if allowed.count < commands.count { log("\(commands.count - allowed.count) commands skipped: not read-only requests this app sends") }
+        self.elm = elm; self.commands = allowed; self.csv = csv; self.now = now; self.log = log; self.onValue = onValue
     }
 
     static func tier(_ c: Command) -> Int {
@@ -67,7 +74,9 @@ public actor Logger {
 
     /// Poll until stop() says so.
     public func run(stop: @Sendable () -> Bool) async throws {
+        lastGood = now().timeIntervalSince1970
         while !stop() && !Task.isCancelled {
+            if now().timeIntervalSince1970 - lastGood > Logger.silenceLimit { throw Silent() }
             if !(try await step(force: false)) {
                 let t = now().timeIntervalSince1970
                 let next = units.map { $0.due }.min() ?? t + 1
@@ -90,6 +99,7 @@ public actor Logger {
             let r = try await elm.request("01" + pids.joined(), hdr: u.members[0].hdr, rax: .some(u.members[0].rax))
             let ts = Int64(now().timeIntervalSince1970 * 1000)
             if case let .positive(data, _, _) = r {
+                lastGood = t
                 let parts = MultiPid.split(pids: pids, data: data)
                 for c in u.members { if let d = parts[c.pid] { handle(c, d, ts) } }
             } else {
@@ -102,7 +112,7 @@ public actor Logger {
         }
         let c = u.members[0]
         let r = try await elm.request(c.request, hdr: c.hdr, rax: .some(c.rax))
-        if case let .positive(data, _, _) = r { handle(c, data, Int64(now().timeIntervalSince1970 * 1000)) }
+        if case let .positive(data, _, _) = r { lastGood = t; handle(c, data, Int64(now().timeIntervalSince1970 * 1000)) }
         return true
     }
 
