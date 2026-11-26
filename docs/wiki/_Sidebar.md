@@ -4,6 +4,7 @@
 - [[Getting started|Getting-Started]]
 - [[Home Assistant|Home-Assistant]]
 - [[HA integration (preview)|Home-Assistant-Integration]]
+- [[iPhone (preview)|iPhone]]
 - [[Android Auto|Android-Auto]]
 - [[Discovery and sweep|Discovery-and-Sweep]]
 - [[Overlays|Overlays-and-Validating-PIDs]]

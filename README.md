@@ -10,6 +10,8 @@ repos), plus the generic SAE J1979 PIDs every OBD-II car speaks.
 - **Home Assistant**: one MQTT-discovered device per car, sensors for the useful signals, trip and fault entities,
   and DPF regen entities on diesels.
 - **Read-only by construction**: the app can't clear codes, write coding or run ECU routines (see *Safety*).
+- **iPhone (preview)**: an iOS app for Bluetooth LE ELM327 adapters, installed with AltStore, sends drives to the
+  CarMonitor HA integration. See the wiki's *iPhone* page.
 
 Docs: see the [wiki](../../wiki) (sources in `docs/wiki/`). Licence: [MIT](LICENSE) for the code; OBDb data is CC BY-SA 4.0.
 
@@ -121,6 +123,9 @@ gh secret set SIGNING_KEY_PASSWORD -b 'your-password'
 Layout: `core/` is pure Kotlin/JVM with no dependencies (ELM327 driver with ISO-TP reassembly, request guard, OBDb parser and
 catalogue, discovery, logger engine, HA discovery, MQTT 3.1.1 client, JSON), tested by `:core:selfTest` against a
 simulated ECU. `app/` is the Android layer (Bluetooth SPP, foreground service, OBDb download, UI with framework widgets only).
+`ios/CarMonitorKit` is the iOS app's logic in Swift (`swift run SelfTest`); `ios/CarMonitor` the SwiftUI app, generated with
+XcodeGen (`ios/project.yml`). CI builds an unsigned `CarMonitor.ipa` on macOS and attaches it to tag releases. Both apps'
+request guards are checked against `spec/guard-vectors.json`.
 
 ## Limits
 

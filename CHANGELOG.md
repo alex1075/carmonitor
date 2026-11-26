@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+### Added
+- **iPhone app (preview)** for Bluetooth LE ELM327 adapters (most cheap "OBD2 BT" clones), installed with AltStore.
+  Logs to CSV with GPS and uploads to the CarMonitor integration with the same backlog behaviour as Android; logs with
+  the screen off and can start by itself when the car powers the adapter. Releases now carry `CarMonitor.ipa`.
+- `spec/guard-vectors.json`: one list of allowed and refused adapter commands that both apps' guards are tested against.
+
 ## [0.9.0] - 2026-11-25
 ### Added
 - **Poll plan.** Choose which commands are polled fast, medium or slow with a JSON file per car
