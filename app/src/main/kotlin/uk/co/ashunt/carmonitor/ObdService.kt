@@ -99,8 +99,11 @@ class ObdService : Service() {
             return START_STICKY
         }
         if (intent?.action == ACTION_RELOAD) {
+            // Nothing to reload when the logger isn't running (e.g. Import profile on a fresh install): the new
+            // settings are read at the next start. Starting foreground here crashed with "Bad notification".
+            if (worker?.isAlive != true) { stopSelf(); return START_NOT_STICKY }
             startForegroundTyped()          // re-type the service (GPS may have been switched on)
-            if (worker?.isAlive == true) { reloadRequested = true; poke() }
+            reloadRequested = true; poke()
             return START_STICKY
         }
         if (intent?.action == ACTION_STOP) {
@@ -126,6 +129,7 @@ class ObdService : Service() {
     /** Location type only when GPS is wanted and allowed; Android refuses it when started from the
      *  background without the location exemption, so fall back to connectedDevice and say so. */
     private fun startForegroundTyped() {
+        createChannel()                     // every path that posts the notification needs its channel first
         val wantGps = Prefs(this).gpsWanted && GpsSource(this).permitted()
         val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
             (if (wantGps) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
