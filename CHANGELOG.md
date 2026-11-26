@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+### Fixed
+- Crash on a fresh install: **Import profile** or **Import overlay JSON** before the first Start/Discover killed the
+  app with "Bad notification for startForeground", because the reload path posted the foreground notification before
+  its channel existed. A reload now does nothing when the logger isn't running, and every foreground start creates the
+  channel first.
+
 ## [0.10.0] - 2026-11-26
 ### Added
 - **iPhone app (preview)** for Bluetooth LE ELM327 adapters (most cheap "OBD2 BT" clones), installed with AltStore.
