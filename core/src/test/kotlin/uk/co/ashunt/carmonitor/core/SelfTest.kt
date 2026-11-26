@@ -130,12 +130,11 @@ object SelfTest {
     }
 
     fun guard() {
-        for (ok in listOf("010C", "01 0d", "03", "07", "0902", "22042B", "ATZ", "ATSH7E0", "ATCRA7E8", "ATSP6", "ATH1", "ATST32"))
-            check(RequestGuard.isAllowed(ok), "should allow $ok")
-        for (bad in listOf("04", "14FFFFFF", "2E042B01", "31010203", "1003", "1002", "1101", "2701", "2F030001",
-                           "3E00", "8502", "34", "22042B00", "2204", "0C", "ATMA", "ATPP0CSV01", "ATBRD08",
-                           "ATSH18DA10F1", "010C\r04", "ZZ", "", "AT", "22042B\r2E", "ATCAF0"))
-            check(!RequestGuard.isAllowed(bad), "should refuse '$bad'")
+        // Shared with the iOS app's tests: both guards must give the same verdicts.
+        val vec = MiniJson.obj(File("spec/guard-vectors.json").readText())
+        for (ok in vec["allowed"].asList()) check(RequestGuard.isAllowed(ok.toString()), "should allow $ok")
+        for (bad in vec["refused"].asList()) check(!RequestGuard.isAllowed(bad.toString()), "should refuse '$bad'")
+        check(vec["refused"].asList().size >= 30, "guard vectors loaded")
         check(runCatching { MiniJson.parse("[".repeat(100000)) }.exceptionOrNull() is IllegalArgumentException, "deep JSON refused, not a stack overflow")
         val elm = Elm327(FakeCx5())
         var threw = false
