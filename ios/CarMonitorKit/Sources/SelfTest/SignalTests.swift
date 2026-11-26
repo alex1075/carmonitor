@@ -32,5 +32,9 @@ func signalTests() throws {
     eq(merged.commands.count, set.commands.count, "merge keeps count")
     check(over.commands[0].debug && !over.commands[0].validated, "dbg and validated flags")
     eq(over.forYear(2017).count, 0, "debug and filtered commands left out")
+    let defs = HaDefs.defs(for: [vssCmd, fsCmd])
+    eq(defs["VSS"], SignalDef(name: "Vehicle speed", unit: "km/h", expire: 60), "VSS def")
+    eq(defs["FUELSYS1"]?.text, true, "enum signal is text")
+    eq(HaDefs.haUnit("celsius"), "°C", "unit map")
     eq(set.forYear(nil).count, set.commands.filter { !$0.debug }.count, "no year: all non-debug")
 }
