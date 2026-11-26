@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.9.0] - 2026-11-26
+## [0.10.0] - 2026-11-26
 ### Added
 - **iPhone app (preview)** for Bluetooth LE ELM327 adapters (most cheap "OBD2 BT" clones), installed with AltStore.
   Logs to CSV with GPS and uploads to the CarMonitor integration with the same backlog behaviour as Android; logs with
