@@ -46,10 +46,35 @@ jobs:
           name: carmonitor-apk
           path: app/build/outputs/apk/release/*.apk
 
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Shared logic self-test
+        working-directory: ios/CarMonitorKit
+        run: swift run -q SelfTest
+      - name: Build unsigned IPA (AltStore signs it on install)
+        working-directory: ios
+        env:
+          VERSION_NAME: ${{ github.ref_type == 'tag' && github.ref_name || '0.9.0' }}
+        run: |
+          brew install xcodegen
+          xcodegen --spec project.yml
+          xcodebuild -project CarMonitor.xcodeproj -scheme CarMonitor -sdk iphoneos -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+            MARKETING_VERSION="${VERSION_NAME#v}" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" build | tail -40
+          test -d build/Build/Products/Release-iphoneos/CarMonitor.app
+          mkdir -p Payload && cp -R build/Build/Products/Release-iphoneos/CarMonitor.app Payload/
+          zip -qr CarMonitor.ipa Payload
+      - uses: actions/upload-artifact@v7
+        with:
+          name: carmonitor-ipa
+          path: ios/CarMonitor.ipa
+
   release:
     # Only tag pushes get a write token; pull requests and branch builds stay read-only.
     if: github.ref_type == 'tag'
-    needs: [apk, ha-integration]
+    needs: [apk, ha-integration, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -58,10 +83,16 @@ jobs:
         with:
           name: carmonitor-apk
           path: apk
+      - uses: actions/download-artifact@v7
+        with:
+          name: carmonitor-ipa
+          path: apk
       - name: Release - Obtainium tracks these
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
-          files: apk/*.apk
+          files: |
+            apk/*.apk
+            apk/*.ipa
 
   ha-integration:
     runs-on: ubuntu-latest

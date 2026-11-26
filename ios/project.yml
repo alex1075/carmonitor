@@ -1,0 +1,48 @@
+name: CarMonitor
+options:
+  bundleIdPrefix: uk.co.ashunt
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  CarMonitorKit:
+    path: CarMonitorKit
+targets:
+  CarMonitor:
+    type: application
+    platform: iOS
+    sources:
+      - path: CarMonitor
+      # Bundled OBDb sets, shared with the Android app (not copied).
+      - path: ../app/src/main/assets/obdb/SAEJ1979.json
+        buildPhase: resources
+      - path: ../app/src/main/assets/overlay/_fixes.json
+        buildPhase: resources
+    scheme: {}
+    dependencies:
+      - package: CarMonitorKit
+    info:
+      path: CarMonitor/Info.plist
+      properties:
+        CFBundleDisplayName: CarMonitor
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIBackgroundModes: [bluetooth-central, location]
+        NSBluetoothAlwaysUsageDescription: CarMonitor talks to your OBD-II adapter over Bluetooth to read the car's data.
+        NSLocationWhenInUseUsageDescription: CarMonitor records where each drive went, for the map in Home Assistant.
+        NSLocationAlwaysAndWhenInUseUsageDescription: CarMonitor keeps recording the drive's route while the screen is off.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: uk.co.ashunt.carmonitor
+        MARKETING_VERSION: "0.9.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
