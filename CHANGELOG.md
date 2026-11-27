@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- **Bluetooth LE dongles on Android.** **Car → Scan BLE (no pairing)** lists nearby BLE devices and connects over GATT, the
+  way Car Scanner does, with no pairing in Android's settings. Finds the dongle's serial characteristics (FFF0, FFE0, 18F0,
+  else any notify + write pair), subscribes, and retries Android's flaky first connects. The ELM327 driver and everything
+  above it are unchanged; classic SPP dongles work as before. The logger picks the link from how the dongle was chosen
+  (or from the device, for an LE-only paired one).
 ### Fixed
 - Crash on a fresh install: **Import profile** or **Import overlay JSON** before the first Start/Discover killed the
   app with "Bad notification for startForeground", because the reload path posted the foreground notification before

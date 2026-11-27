@@ -114,7 +114,7 @@ interface Actions {
     fun discover(sweep: Boolean)
     fun chooseVehicle(); fun genericVehicle()
     fun setTank(v: String)
-    fun chooseDongle(); fun scanAndPair()
+    fun chooseDongle(); fun scanAndPair(); fun scanBle()
     fun setAutostart(on: Boolean); fun chooseCarDevices(); fun linkCompanion()
     fun importProfile(); fun exportProfile()
     fun editConnection(); fun testConnection(); fun uploadDrives()
@@ -375,6 +375,9 @@ fun CarScreen(m: UiModel, a: Actions) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = a::chooseDongle) { Text("Choose paired") }
                 OutlinedButton(onClick = a::scanAndPair) { Text("Scan & pair") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = a::scanBle) { Text("Scan BLE (no pairing)") }
             }
         }
         Section("Autostart") {

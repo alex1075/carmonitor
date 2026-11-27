@@ -685,9 +685,77 @@ fun pollPlan(lib: SignalSet) {
         eq(MiniJson.write(MiniJson.obj(MiniJson.write(o))), MiniJson.write(o), "json round-trip")
     }
 
+
+    /** BLE serial adapters: layout picking and the notify/write link, with a tiny adapter that answers in small pieces. */
+    fun ble() {
+        eq(BleSerial.short("0000FFF0-0000-1000-8000-00805f9b34fb"), "FFF0", "base UUID shortened")
+        eq(BleSerial.short("6e400001-b5a3-f393-e0a9-e50e24dcca9e"), "6E400001-B5A3-F393-E0A9-E50E24DCCA9E", "vendor UUID kept")
+        fun c(u: String, n: Boolean = false, w: Boolean = false, wn: Boolean = false) = BleChar("0000$u-0000-1000-8000-00805f9b34fb", n, w, wn)
+        val vgate = BleService("0000FFF0-0000-1000-8000-00805f9b34fb", listOf(c("FFF1", n = true), c("FFF2", wn = true), c("FFEA", n = true)))
+        val hm10 = BleService("0000ffe0-0000-1000-8000-00805f9b34fb", listOf(c("FFE1", n = true, wn = true)))
+        val battery = BleService("0000180F-0000-1000-8000-00805f9b34fb", listOf(c("2A19", n = true)))
+        val p1 = BleSerial.pick(listOf(battery, vgate))
+        check(p1 != null && p1.service == "FFF0" && BleSerial.short(p1.notify.uuid) == "FFF1" && BleSerial.short(p1.write.uuid) == "FFF2", "FFF0 layout picked: $p1")
+        val p2 = BleSerial.pick(listOf(hm10))
+        check(p2 != null && p2.service == "FFE0" && p2.notify == p2.write, "FFE0 layout: one characteristic for both: $p2")
+        val odd = BleService("6e400001-b5a3-f393-e0a9-e50e24dcca9e", listOf(
+            BleChar("6e400003-b5a3-f393-e0a9-e50e24dcca9e", true, false, false), BleChar("6e400002-b5a3-f393-e0a9-e50e24dcca9e", false, true, false)))
+        check(BleSerial.pick(listOf(battery, odd))?.write?.uuid == "6e400002-b5a3-f393-e0a9-e50e24dcca9e", "unknown clone: any notify + write pair")
+        check(BleSerial.pick(listOf(battery)) == null, "no serial service -> null")
+        check(BleSerial.pick(listOf(BleService("0000FFF0-0000-1000-8000-00805f9b34fb", listOf(c("FFF1", n = true))))) == null, "notify without a write characteristic is not serial")
+        eq(BleSerial.chunkSize(23), 20, "default MTU writes 20 bytes"); eq(BleSerial.chunkSize(247), 244, "big MTU writes MTU-3")
+        check(BleSerial.looksLikeObd("OBDII") && BleSerial.looksLikeObd("vLinker MC") && !BleSerial.looksLikeObd("JBL Flip") && !BleSerial.looksLikeObd(null), "name sort")
+
+        // An adapter that collects a command up to CR and answers in 5-byte notifications, like a clone behind a small MTU.
+        lateinit var link: NotifyLink
+        val written = mutableListOf<ByteArray>()
+        val cmd = StringBuilder()
+        fun reply(text: String) { text.toByteArray().toList().chunked(5).forEach { link.onData(it.toByteArray()) } }
+        link = NotifyLink({ 8 }) { chunk ->
+            written += chunk
+            for (b in chunk) {
+                if (b.toInt() != '\r'.code) { cmd.append(b.toInt().toChar()); continue }
+                val line = cmd.toString(); cmd.clear()
+                reply(when {
+                    line == "ATZ" -> "\r\rELM327 v1.5\r\r>"
+                    line.startsWith("AT") -> "OK\r\r>"
+                    line == "010C" -> "7E8 04 41 0C 1A F8\r\r>"
+                    else -> "?\r\r>"
+                })
+            }
+        }
+        val elm = Elm327(link)
+        elm.init()
+        eq(elm.adapterId, "ELM327 v1.5", "ATZ banner reassembled from 5-byte notifications")
+        eq(elm.adapterWarnings, emptyList<String>(), "init over BLE: no rejected AT commands")
+        val r = elm.request("010C")
+        check(r is ObdResponse.Positive && r.hex() == "1AF8", "request over BLE link: $r")
+        check(written.all { it.size <= 8 }, "no write longer than the chunk size: ${written.maxOf { it.size }}")
+        check(written.any { it.size == 8 }, "a long command is split, not truncated")
+        val full = written.joinToString("") { String(it) }
+        check(full.contains("ATSP6\r") && full.contains("010C\r"), "split writes reassemble to the full commands: ${full.take(60)}")
+
+        // Link loss: the next send and the next read both throw instead of hanging.
+        link.fail(java.io.IOException("adapter disconnected (GATT status 8)"))
+        var threw = false
+        try { link.send("ATRV") } catch (e: java.io.IOException) { threw = e.message!!.contains("status 8") }
+        check(threw, "send after link loss throws the cause")
+        threw = false
+        try { link.readUntilPrompt(50) } catch (_: java.io.IOException) { threw = true }
+        check(threw, "read after link loss throws")
+        val empty = NotifyLink { }
+        eq(empty.readUntilPrompt(20), "", "timeout with nothing received returns empty")
+        empty.onData("OK\r>".toByteArray()); empty.onData("later".toByteArray())
+        eq(empty.readUntilPrompt(20), "OK\r", "stops at the prompt and keeps the rest for the next read")
+        empty.close()
+        threw = false
+        try { empty.send("ATZ") } catch (_: java.io.IOException) { threw = true }
+        check(threw, "closed link refuses sends")
+    }
+
     @JvmStatic
     fun main(args: Array<String>) {
-        json(); guard(); parsing()
+        json(); guard(); parsing(); ble()
         val lib = library()
         println("library: ${lib.commands.size} commands, ${lib.commands.sumOf { it.signals.size }} signals")
         decoding(lib)

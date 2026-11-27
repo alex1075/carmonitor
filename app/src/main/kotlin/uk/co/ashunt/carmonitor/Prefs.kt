@@ -17,6 +17,14 @@ class Prefs(private val ctx: Context) {
     private fun put(k: String, v: String?) = sp.edit().putString(k, v).apply()
 
     var deviceAddress: String? get() = sp.getString("device", null); set(v) = put("device", v)
+    /** "ble" = GATT link picked by Scan BLE; "classic" = RFCOMM; null = decide from the device (LE-only means BLE). */
+    var deviceLink: String? get() = sp.getString("device_link", null); set(v) = put("device_link", v)
+    /** Name of the dongle when it isn't in Android's paired list (BLE dongles are never paired). */
+    var deviceLabel: String? get() = sp.getString("device_label", null); set(v) = put("device_label", v)
+    /** Choose a dongle: pass the link kind it was picked with. Clears the stale label of the previous one. */
+    fun selectDongle(address: String, link: String?, label: String? = null) {
+        deviceAddress = address; deviceLink = link; deviceLabel = label
+    }
     var brokerHost: String get() = str("host", ""); set(v) = put("host", v)
     var brokerPort: Int get() = sp.getInt("port", 1883); set(v) = sp.edit().putInt("port", v).apply()
     var brokerUser: String get() = str("user", ""); set(v) = put("user", v)

@@ -6,6 +6,9 @@ import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.companion.AssociationInfo
@@ -31,6 +34,7 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import uk.co.ashunt.carmonitor.core.BleSerial
 import uk.co.ashunt.carmonitor.core.ObdbCatalog
 import uk.co.ashunt.carmonitor.core.VehicleRef
 import uk.co.ashunt.carmonitor.core.Wmi
@@ -140,9 +144,11 @@ class MainActivity : ComponentActivity(), Actions {
                 " · adapter " + it.adapter
         } ?: "No profile yet: discovery runs on the next connect"
         val names = bonded().associate { (n, a) -> a to n }
-        model.dongle = prefs.deviceAddress?.let { a -> "${names[a] ?: "?"}  ($a)" } ?: "No dongle selected"
+        model.dongle = prefs.deviceAddress?.let { a ->
+            "${names[a] ?: prefs.deviceLabel ?: "?"}  ($a)" + if (Dongle.isBle(this, prefs, a)) "  · BLE" else ""
+        } ?: "No dongle selected"
         val cars = prefs.carDevices.map { names[it] ?: it }
-        val dongleName = prefs.deviceAddress?.let { names[it] ?: it } ?: "the dongle"
+        val dongleName = prefs.deviceAddress?.let { names[it] ?: prefs.deviceLabel ?: it } ?: "the dongle"
         model.carTrigger = if (cars.isEmpty()) "Trigger: the dongle only" else "When ${cars.joinToString(" or ")} connects → dial $dongleName"
         model.linked = isLinked()
         model.btAutostart = prefs.btAutostart
@@ -199,7 +205,7 @@ class MainActivity : ComponentActivity(), Actions {
         if (list.isEmpty()) { toast("No paired devices: use Scan & pair"); return }
         AlertDialog.Builder(this).setTitle("OBD dongle")
             .setItems(list.map { "${it.first}  (${it.second})" }.toTypedArray()) { _, i ->
-                prefs.deviceAddress = list[i].second; refresh()
+                prefs.selectDongle(list[i].second, null); refresh()   // link kind decided from the device (LE-only = BLE)
             }
             .setNegativeButton("Cancel", null).show()
     }
@@ -282,10 +288,12 @@ class MainActivity : ComponentActivity(), Actions {
         }
         refresh()
         if (requestCode == 2 && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) scanAndPair()
+        if (requestCode == 4 && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) scanBle()
     }
 
     override fun onDestroy() {
         stopScan()
+        stopBleScan()
         scanReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
         scanReceiver = null
         super.onDestroy()
@@ -321,7 +329,7 @@ class MainActivity : ComponentActivity(), Actions {
                     BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
                         val d = deviceExtra(intent) ?: return
                         if (d.bondState == BluetoothDevice.BOND_BONDED) {
-                            prefs.deviceAddress = d.address
+                            prefs.selectDongle(d.address, "classic")
                             refresh()
                             toast("Paired with ${d.name ?: d.address}")
                         }
@@ -352,10 +360,66 @@ class MainActivity : ComponentActivity(), Actions {
         // keep the receiver for bond-state events until the next scan or onDestroy
     }
 
+    // --- Scan BLE (no pairing: the app connects to the dongle directly, like Car Scanner) ----------
+    private var bleScanCb: ScanCallback? = null
+    private val bleFound = LinkedHashMap<String, Pair<String, Int>>()   // address -> (name, rssi)
+
+    @SuppressLint("MissingPermission")
+    override fun scanBle() {
+        val need = listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+            .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (need.isNotEmpty()) { requestPermissions(need.toTypedArray(), 4); return }
+        val ad = adapter() ?: run { toast("No Bluetooth adapter"); return }
+        if (!ad.isEnabled) { toast("Turn Bluetooth on first"); return }
+        val scanner = ad.bluetoothLeScanner ?: run { toast("Couldn't start a BLE scan"); return }
+        stopBleScan()
+        bleFound.clear()
+        val cb = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, r: ScanResult) {
+                val name = r.scanRecord?.deviceName ?: try { r.device.name } catch (_: SecurityException) { null }
+                if (name.isNullOrBlank()) return
+                bleFound[r.device.address] = name to r.rssi
+            }
+            override fun onScanFailed(errorCode: Int) { toast("BLE scan failed (code $errorCode)") }
+        }
+        bleScanCb = cb
+        try {
+            scanner.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
+        } catch (e: Exception) { bleScanCb = null; toast("Couldn't start a BLE scan: ${e.message}"); return }
+        toast("Scanning ~10 s… ignition on, dongle plugged in, other OBD apps closed")
+        ui.postDelayed({ if (bleScanCb === cb) { stopBleScan(); if (!isFinishing) showBleFound() } }, 10_000)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopBleScan() {
+        val cb = bleScanCb ?: return
+        bleScanCb = null
+        try { if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) adapter()?.bluetoothLeScanner?.stopScan(cb) } catch (_: Exception) {}
+    }
+
+    private fun showBleFound() {
+        if (bleFound.isEmpty()) {
+            toast("No BLE devices found. Is the ignition on? Close Car Scanner or any other app holding the dongle.")
+            return
+        }
+        // Dongle-looking names first, then the strongest signal
+        val list = bleFound.entries.sortedWith(
+            compareByDescending<Map.Entry<String, Pair<String, Int>>> { BleSerial.looksLikeObd(it.value.first) }
+                .thenByDescending { it.value.second })
+        AlertDialog.Builder(this).setTitle("Pick your OBD dongle (BLE)")
+            .setItems(list.map { "${it.value.first}  ${it.key}  ${it.value.second} dBm" }.toTypedArray()) { _, i ->
+                val (addr, v) = list[i].let { it.key to it.value }
+                prefs.selectDongle(addr, "ble", v.first)
+                refresh()
+                toast("Dongle set to ${v.first}. No pairing needed.")
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+
     @SuppressLint("MissingPermission")
     private fun showFound() {
         if (found.isEmpty()) {
-            toast("No unpaired classic Bluetooth devices found. Is the ignition on? BLE-only dongles aren't supported yet.")
+            toast("No unpaired classic Bluetooth devices found. Is the ignition on? For a BLE dongle use Scan BLE.")
             return
         }
         val list = found.values.sortedByDescending { d -> d.name?.let { n -> listOf("OBD", "ELM", "VLINK", "V-LINK", "OBDLINK", "ICAR", "VGATE").any { n.uppercase().contains(it) } } ?: false }
