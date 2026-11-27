@@ -1,6 +1,7 @@
 package uk.co.ashunt.carmonitor
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
@@ -12,6 +13,22 @@ import uk.co.ashunt.carmonitor.core.WebhookUplink
 import uk.co.ashunt.carmonitor.core.StreamLink
 import java.io.IOException
 import java.util.UUID
+
+/** Opens the dongle over BLE (GATT) or classic RFCOMM, whichever it is. */
+object Dongle {
+    @SuppressLint("MissingPermission")   // caller checks BLUETOOTH_CONNECT
+    fun isBle(ctx: Context, prefs: Prefs, address: String): Boolean = when (prefs.deviceLink) {
+        "ble" -> true
+        "classic" -> false
+        // Not chosen explicitly: an LE-only device cannot do RFCOMM, so BLE is the only option for it.
+        else -> try {
+            ctx.getSystemService(BluetoothManager::class.java)?.adapter?.getRemoteDevice(address)?.type == BluetoothDevice.DEVICE_TYPE_LE
+        } catch (_: Exception) { false }
+    }
+
+    fun open(ctx: Context, prefs: Prefs, address: String, log: (String) -> Unit): ElmLink =
+        if (isBle(ctx, prefs, address)) BleGatt.open(ctx, address, log) else BtSpp.open(ctx, address)
+}
 
 /** Classic Bluetooth SPP (RFCOMM) link to an ELM327 dongle. */
 object BtSpp {

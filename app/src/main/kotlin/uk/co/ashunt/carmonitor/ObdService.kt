@@ -189,7 +189,7 @@ class ObdService : Service() {
                     setState("needs Bluetooth permission", ""); sleep(5000); continue
                 }
                 setState("waiting for the car", "dongle $addr")
-                val link = try { BtSpp.open(this, addr) } catch (e: Exception) {
+                val link = try { Dongle.open(this, prefs, addr) { Status.log(it) } } catch (e: Exception) {
                     // Never let a connect failure (incl. SecurityException) kill the service:
                     // START_STICKY would restart it straight into the same crash.
                     Status.detail = "dongle not reachable (${e.message})"; Status.log("connect: $e"); sleep(20_000); continue

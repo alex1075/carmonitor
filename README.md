@@ -17,18 +17,19 @@ Docs: see the [wiki](../../wiki) (sources in `docs/wiki/`). Licence: [MIT](LICEN
 
 ## Which Bluetooth OBD dongle to buy
 
-The app needs a **classic Bluetooth (SPP) ELM327-compatible** adapter. BLE-only dongles are not supported yet. It also relies on
-these AT commands working properly: `ATSH`, `ATCRA`, `ATH1`, `ATCAF1`, `ATAT1`, `ATSP`.
+The app talks to an **ELM327-compatible** adapter over classic Bluetooth (SPP) or Bluetooth LE. A BLE dongle needs no pairing: use
+**Scan BLE** in the app. It also relies on these AT commands working properly: `ATSH`, `ATCRA`, `ATH1`, `ATCAF1`, `ATAT1`, `ATSP`.
 
 | Adapter | Link | Verdict |
 |---|---|---|
 | **OBDLink LX Bluetooth** (ScanTool) | Bluetooth 3.0, SPP | **Recommended.** STN11xx chip with the full ELM327 command set, fast, auto sleep (BatterySaver) so it can stay plugged in. Android/Windows only (no iOS). About £90–95 in the UK. |
 | **Vgate iCar Pro (BT3.0/BLE4.0)** | dual mode | Budget option: use its classic BT side on Android. Check the listing says *BT3.0*. |
 | Vgate vLinker MC (Bluetooth 3.0) | classic BT | Should work (Android/Windows classic). |
-| Vgate iCar Pro **BLE 4.0** / **2S**, other BLE-only dongles | BLE only | Not supported yet. |
+| Vgate iCar Pro **BLE 4.0** / **2S**, other BLE-only dongles | BLE only | Works through **Scan BLE** (no pairing). Needs a standard serial layout (FFF0, FFE0 or 18F0, else any notify + write pair). Untested on real hardware, please report results. |
 | Unbranded "ELM327 v2.1 / v1.5" clones (£3–10) | varies | Avoid. Many reject half the ELM327 command set. |
 
-**Check yours:** if it pairs in Android's Bluetooth settings with a PIN (usually 1234 or 0000), it's classic. When it
+**Check yours:** if it pairs in Android's Bluetooth settings with a PIN (usually 1234 or 0000), it's classic; if it never asks to pair
+and only shows up in a BLE scan, use **Scan BLE**. When it
 connects, the app logs any AT commands the adapter rejected ("adapter rejected … likely a poor ELM327 clone").
 Discovery also saves them in the profile.
 
@@ -36,7 +37,7 @@ Discovery also saves them in the profile.
 
 ## Setup
 
-1. Pair the dongle, either in Android Bluetooth settings or in the app with **Scan & pair…** (ignition on). Scanning asks for *Nearby devices* permission, declared `neverForLocation`, so no location access.
+1. Pick the dongle: pair it in Android Bluetooth settings or with **Scan & pair…** (classic), or use **Scan BLE** (no pairing) for a BLE dongle. Ignition on. Scanning asks for *Nearby devices* permission, declared `neverForLocation`, so no location access.
 2. Install the APK (from [Releases](../../releases), or add the repo in Obtainium) and grant the Bluetooth and notification
    permissions.
 3. **Car → Change vehicle** and search (for example `RAV4`, `Golf`, `Octavia`). The make is pre-filled from the VIN once discovery
@@ -122,14 +123,14 @@ gh secret set SIGNING_KEY_PASSWORD -b 'your-password'
 
 Layout: `core/` is pure Kotlin/JVM with no dependencies (ELM327 driver with ISO-TP reassembly, request guard, OBDb parser and
 catalogue, discovery, logger engine, HA discovery, MQTT 3.1.1 client, JSON), tested by `:core:selfTest` against a
-simulated ECU. `app/` is the Android layer (Bluetooth SPP, foreground service, OBDb download, UI with framework widgets only).
+simulated ECU. `app/` is the Android layer (Bluetooth SPP and BLE GATT links, foreground service, OBDb download, UI with framework widgets only).
 `ios/CarMonitorKit` is the iOS app's logic in Swift (`swift run SelfTest`); `ios/CarMonitor` the SwiftUI app, generated with
 XcodeGen (`ios/project.yml`). CI builds an unsigned `CarMonitor.ipa` on macOS and attaches it to tag releases. Both apps'
 request guards are checked against `spec/guard-vectors.json`.
 
 ## Limits
 
-- Classic Bluetooth only, for now. CAN cars are the main target. Older K-line/J1850 cars may need a different `ATSP`.
+- CAN cars are the main target. Older K-line/J1850 cars may need a different `ATSP`.
 - OBDb coverage varies by model. Some repos are mostly petrol-car data, so diesel-specific values may need an overlay.
 - When the uplink is down, live values are dropped. Retained ones (trip summary, DTCs, discovery) are flushed on reconnect.
 

@@ -3,7 +3,9 @@
 | Symptom | Likely cause / fix |
 |---|---|
 | "dongle not reachable" | Ignition off (many dongles sleep), not paired, or another app holds the connection. Close Car Scanner/Torque. |
-| Scan finds nothing | Ignition on? Some dongles only advertise for a minute after power-up. BLE-only dongles are hidden (not supported yet). |
+| Scan finds nothing | Ignition on? Some dongles only advertise for a minute after power-up. **Scan & pair** hides BLE-only dongles: use **Scan BLE**. |
+| BLE dongle: "BLE connect attempt 1/4 failed … GATT status 133" | Android's BLE stack often fails the first connects; the app retries four times. If all fail: ignition on, close other OBD apps (one connection at a time), forget any half-paired entry for the dongle in Android settings, toggle Bluetooth. |
+| BLE dongle: "no serial service on this device" | The dongle uses a layout the app doesn't know. The log lists its services; open an issue with them. |
 | "adapter rejected AT…" | Poor clone. See [[Choosing a dongle|Choosing-a-Dongle]]. |
 | Discovery finds almost nothing | Wrong model year or vehicle; a K-line/J1850 car (try another `ATSP`); or Mode 22 blocked by a gateway (some newer cars). |
 | "vehicle signalset not downloaded" | Choose the vehicle again while online. |

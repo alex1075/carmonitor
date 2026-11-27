@@ -10,6 +10,8 @@ Grant **Bluetooth** and **notification** permissions on first launch. Then turn 
 ## 2. Pair the dongle
 With the ignition on, open **Car** and tap **Scan & pair**. It lists nearby *classic* Bluetooth devices (BLE-only gadgets are hidden), and you pick the dongle. Android then asks for the PIN (often `1234` or `0000`). Or pair it in Android's Bluetooth settings and pick it with **Choose paired**.
 
+**BLE dongle?** Tap **Scan BLE (no pairing)** instead. It lists nearby Bluetooth LE devices, dongle-like names first. Pick yours and you're done: there is no PIN and nothing to pair in Android's settings (and a stale half-pairing there can get in the way, so forget it). Close Car Scanner or any other app that is connected to the dongle first, because a BLE dongle accepts one connection at a time. The Car screen shows *· BLE* next to a dongle that connects this way.
+
 Scanning needs the *Nearby devices* permission. The app declares it `neverForLocation`, so it gets no location access.
 
 ## 3. Choose your car
