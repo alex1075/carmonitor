@@ -62,7 +62,7 @@ async def test_webhook_end_to_end(hass, hass_client_no_auth, hass_ws_client):
     resp = await client.post(url, json=body)
     assert (await resp.json())['stored'] == 0
     assert (await client.post(url, json={'drive': 'x', 'rows': [[1, 'RPM', 1]]})).status == 400
-    flood = {'drive': 'x', 'rows': [[now, 'S' + str(i), 1.0] for i in range(600)]}
+    flood = {'drive': 'x', 'rows': [[now, 'S' + str(i), 1.0] for i in range(2100)]}
     assert (await client.post(url, json=flood)).status == 400
     assert hass.states.get('sensor.test_car_s1') is None
     ws = await hass_ws_client(hass)

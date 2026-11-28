@@ -8,6 +8,8 @@
   above it are unchanged; classic SPP dongles work as before. The logger picks the link from how the dongle was chosen
   (or from the device, for an LE-only paired one).
 ### Fixed
+- Integration: the per-car signal cap was 500, so a car with many sweep/DID signals (e.g. 743 sensors) had every upload
+  rejected with HTTP 400 "more than 500 signals". Raised to 2000.
 - Crash on a fresh install: **Import profile** or **Import overlay JSON** before the first Start/Discover killed the
   app with "Bad notification for startForeground", because the reload path posted the foreground notification before
   its channel existed. A reload now does nothing when the logger isn't running, and every foreground start creates the

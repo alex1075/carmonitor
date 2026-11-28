@@ -14,4 +14,4 @@ NO_SENSOR = ['GPS_LAT', 'GPS_LON', 'GPS_ACC_M']
 
 CARD_PATH = '/carmonitor_static'
 CARD_VERSION = '0.2.1'
-MAX_SIGNALS = 500
+MAX_SIGNALS = 2000
